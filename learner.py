@@ -64,10 +64,14 @@ def calc_loss(batch, net, tgt_net, device):
     return nn.MSELoss()(state_action_values, expected_state_action_values)
 
 
-def publish_model(net, act_sock):
+def publish_model(net, sync_net, act_sock):
     """가중치를 발행."""
     log("publish model.")
-    payload = pickle.dumps(net)
+    cpu_model_dict = {}
+    for key, val in net.state_dict().items():
+        cpu_model_dict[key] = val.cpu()
+    sync_net.load_state_dict(cpu_model_dict) 
+    payload = pickle.dumps(sync_net)
     act_sock.send(payload)
 
 
@@ -79,6 +83,7 @@ def main():
     net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net.load_state_dict(net.state_dict())
+    sync_net = DQN(env.observation_space.shape, env.action_space.n)
     writer = SummaryWriter(comment="-" + ENV_NAME)
     log(net)
 
@@ -88,7 +93,7 @@ def main():
     input()
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")
-    publish_model(net, act_sock)
+    publish_model(net, sync_net, act_sock)
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
 
@@ -135,7 +140,7 @@ def main():
                 tgt_net.load_state_dict(net.state_dict())
 
         # 모델 발행
-        publish_model(net, act_sock)
+        publish_model(net, sync_net, act_sock)
         if p_time is not None:
             elapsed = time.time() - p_time
             fps = 1.0 / elapsed
