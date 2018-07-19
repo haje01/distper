@@ -84,7 +84,7 @@ def main():
     tgt_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net.load_state_dict(net.state_dict())
     sync_net = DQN(env.observation_space.shape, env.action_space.n)
-    writer = SummaryWriter(comment="-" + ENV_NAME)
+    writer = SummaryWriter('runs', comment="-" + ENV_NAME)
     log(net)
 
     # ZMQ 초기화
