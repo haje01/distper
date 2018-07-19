@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from common import Experience, ExperienceBuffer, ENV_NAME, ActorInfo,\
-    float2byte, byte2float, get_logger
+    float2byte, byte2float, get_logger, DQN, async_recv
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
@@ -109,11 +109,21 @@ class Agent:
         self.exp_buffer.clear()
 
 
-def receive_model(lrn_sock):
+def receive_model(lrn_sock, net, block):
     """러너에게서 모델을 받음."""
     log("receive model from learner.")
-    param = lrn_sock.recv()
-    net = pickle.loads(param)
+    if block:
+        param = lrn_sock.recv()
+    else:
+        param = async_recv(lrn_sock)
+
+    if param is None:
+        log("no new model. use old one.")
+        return net
+
+    log("received new model.")
+    state_dict = pickle.loads(param)
+    net.load_state_dict(state_dict)
     return net
 
 
@@ -121,6 +131,7 @@ def main():
     """메인."""
     # 환경 생성
     env = make_env(ENV_NAME)
+    net = DQN(env.observation_space.shape, env.action_space.n)
     buffer = ExperienceBuffer(BUFFER_SIZE)
     # 고정 eps로 에이전트 생성
     epsilon = EPS_BASE ** (1 + ACTOR_NO / (NUM_ACTOR - 1) * EPS_ALPHA)
@@ -130,7 +141,7 @@ def main():
     # zmq 초기화
     context, lrn_sock, buf_sock = init_zmq()
     # 러너에게서 기본 가중치 받고 시작
-    net = receive_model(lrn_sock)
+    net = receive_model(lrn_sock, net, True)
     log('done')
 
     #
@@ -167,7 +178,7 @@ def main():
 
         # 모델을 받을 때가 되었으면 받기
         if frame_idx % MODEL_UPDATE_FREQ == 0:
-            net = receive_model(lrn_sock)
+            net = receive_model(lrn_sock, net, False)
 
 
 if __name__ == '__main__':

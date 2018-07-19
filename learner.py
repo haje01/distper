@@ -18,9 +18,10 @@ STOP_REWARD = 19.5
 GAMMA = 0.99
 BATCH_SIZE = 128
 LEARNING_RATE = 1e-4
-SYNC_TARGET_FRAMES = 1000  # for GPU
+SYNC_TARGET_FREQ = 70
 
 GRADIENT_CLIP = 40
+PUBLISH_FREQ = 20
 
 total_q_max = 0.0
 log = get_logger()
@@ -64,14 +65,14 @@ def calc_loss(batch, net, tgt_net, device):
     return nn.MSELoss()(state_action_values, expected_state_action_values)
 
 
-def publish_model(net, sync_net, act_sock):
+def publish_model(net, act_sock):
     """가중치를 발행."""
     log("publish model.")
-    cpu_model_dict = {}
+    cpu_model_state = {}
+    ts = time.time()
     for key, val in net.state_dict().items():
-        cpu_model_dict[key] = val.cpu()
-    sync_net.load_state_dict(cpu_model_dict) 
-    payload = pickle.dumps(sync_net)
+        cpu_model_state[key] = val.cpu()
+    payload = pickle.dumps(cpu_model_state)
     act_sock.send(payload)
 
 
@@ -83,7 +84,6 @@ def main():
     net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net.load_state_dict(net.state_dict())
-    sync_net = DQN(env.observation_space.shape, env.action_space.n)
     writer = SummaryWriter('runs', comment="-" + ENV_NAME)
     log(net)
 
@@ -93,7 +93,7 @@ def main():
     input()
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")
-    publish_model(net, sync_net, act_sock)
+    publish_model(net,act_sock)
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
 
@@ -115,35 +115,40 @@ def main():
             # 배치 학습
             log("train batch.")
             train_cnt += 1
-            batch, ainfo, binfo = pickle.loads(payload)
             optimizer.zero_grad()
+            batch, ainfo, binfo = pickle.loads(payload)
             loss_t = calc_loss(batch, net, tgt_net, device=device)
             loss_t.backward()
+            optimizer.step()
 
-            # Gradient Exploding에는 BN보다 Gradient Clip이 유효
+            # gradient clipping
             for param in net.parameters():
                 param.grad.data.clamp_(-GRADIENT_CLIP, GRADIENT_CLIP)
 
-            writer.add_scalar("learner/loss", float(loss_t), train_cnt)
-            writer.add_scalar("learner/fps", fps, train_cnt)
-            writer.add_scalar("learner/Qmax", float(total_q_max / ainfo.frame),
-                              ainfo.frame)
-            writer.add_scalar("buffer/replay", binfo.replay, train_cnt)
-            writer.add_scalar("actor/fps", ainfo.speed, ainfo.frame)
-            writer.add_scalar("actor/reward", ainfo.reward, ainfo.frame)
-            optimizer.step()
-
             # 타겟 네트워크 갱신
-            if train_cnt % SYNC_TARGET_FRAMES == 0:
+            if train_cnt % SYNC_TARGET_FREQ == 0:
                 log("sync target network.")
                 log(net.state_dict()['conv.0.weight'][0][0])
                 tgt_net.load_state_dict(net.state_dict())
 
+                # 보드 게시
+                writer.add_scalar("learner/loss", float(loss_t), train_cnt)
+                writer.add_scalar("learner/fps", fps, train_cnt)
+                writer.add_scalar("learner/Qmax", float(total_q_max / ainfo.frame),
+                                   ainfo.frame)
+                writer.add_scalar("buffer/replay", binfo.replay, train_cnt)
+                writer.add_scalar("actor/fps", ainfo.speed, ainfo.frame)
+                writer.add_scalar("actor/reward", ainfo.reward, ainfo.frame)
+
         # 모델 발행
-        publish_model(net, sync_net, act_sock)
+        if train_cnt % PUBLISH_FREQ == 0:
+            publish_model(net, act_sock)
+
         if p_time is not None:
             elapsed = time.time() - p_time
             fps = 1.0 / elapsed
+            log("train elapsed {:.2f} fps {:.2f}".format(elapsed, fps))
+
         p_time = time.time()
 
     writer.close()
