@@ -3,9 +3,9 @@ import pickle
 
 import zmq
 import numpy as np
-from tensorboardX import SummaryWriter
 
-from common import ExperienceBuffer, async_recv, ActorInfo, ENV_NAME
+from common import ExperienceBuffer, async_recv, ActorInfo, BufferInfo,\
+    get_logger
 
 REPLAY_SIZE = 500000
 REPLAY_START_SIZE = 10000
@@ -19,11 +19,10 @@ def average_actor_info(infos):
     info = ActorInfo(tmp.episode, int(tmp.frame), tmp.reward, tmp.speed)
     return info
 
+log = get_logger()
 
 buffer = ExperienceBuffer(REPLAY_SIZE)
 context = zmq.Context()
-
-writer = SummaryWriter(comment="-" + ENV_NAME)
 
 # 액터/러너에게서 받을 소켓
 recv = context.socket(zmq.PULL)
@@ -40,30 +39,28 @@ while True:
     # 액터에게서 리플레이 정보 받음
     payload = async_recv(recv)
     if payload is not None:
-        ebuf, info = pickle.loads(payload)
-        actor_infos.append(info)
+        ebuf, ainfo = pickle.loads(payload)
+        actor_infos.append(ainfo)
         # 리플레이 버퍼에 병합
         buffer.merge(ebuf)
-        print("receive replay - buffer size {}".format(len(buffer)))
+        log("receive replay - buffer size {}".format(len(buffer)))
 
     # 러너가 배치를 요청했으면 보냄
     if async_recv(learner) is not None:
         if len(actor_infos) > 0:
-            info = average_actor_info(actor_infos)
+            ainfo = average_actor_info(actor_infos)
         else:
-            info = None
+            ainfo = None
 
         if len(buffer) < REPLAY_START_SIZE:
             payload = b'not enough'
-            print("not enough data - buffer size {}".format(len(buffer)))
+            log("not enough data - buffer size {}".format(len(buffer)))
         else:
             # 충분하면 샘플링 후 보냄
             batch = buffer.sample(BATCH_SIZE)
-            payload = pickle.dumps((batch, info))
-            print("send batch")
-
-        if info is not None:
-            writer.add_scalar("buffer/replay", len(buffer), info.frame)
+            binfo = BufferInfo(len(buffer))
+            payload = pickle.dumps((batch, ainfo, binfo))
+            log("send batch")
 
         # 전송
         learner.send(payload)

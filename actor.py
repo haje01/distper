@@ -7,7 +7,8 @@ import zmq
 import numpy as np
 import torch
 
-from common import Experience, ExperienceBuffer, ENV_NAME, ActorInfo
+from common import Experience, ExperienceBuffer, ENV_NAME, ActorInfo,\
+    float2byte, byte2float, get_logger
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
@@ -21,9 +22,7 @@ assert ACTOR_NO != -1
 NUM_ACTOR = int(os.environ.get('NUM_ACTOR', '-1'))  # 전체 액터 수
 assert NUM_ACTOR != -1
 
-# EPISODES = 500
-# MEMORY_SIZE = 70    # 액터 메모리 크기
-# MODEL_UPDATE = 100  # 매 100프레임당 러너의 모델 복사
+log = get_logger()
 
 
 def init_zmq():
@@ -54,7 +53,7 @@ class Agent:
 
     def _reset(self):
         """리셋 구현."""
-        self.state = self.env.reset()
+        self.state = float2byte(self.env.reset())
         self.tot_reward = 0.0
 
     def play_step(self, net, epsilon, frame_idx):
@@ -66,7 +65,8 @@ class Agent:
             action = self.env.action_space.sample()
         else:
             # 가치가 높은 동작.
-            state_a = np.array([self.state], copy=False)
+            state = byte2float(self.state)
+            state_a = np.array([state])
             state_v = torch.tensor(state_a)
             q_vals_v = net(state_v)
             _, act_v = torch.max(q_vals_v, dim=1)
@@ -74,6 +74,7 @@ class Agent:
 
         # 환경 진행
         new_state, reward, is_done, _ = self.env.step(action)
+        new_state = float2byte(new_state)
         self.tot_reward += reward
 
         # 버퍼에 추가
@@ -82,8 +83,7 @@ class Agent:
         self.state = new_state
 
         if frame_idx % SHOW_FREQ == 0:
-            print("{}: buffer size {} "
-                  .format(frame_idx, len(self.exp_buffer)))
+            log("{}: buffer size {} ".format(frame_idx, len(self.exp_buffer)))
 
         # 종료되었으면 리셋
         if is_done:
@@ -100,7 +100,7 @@ class Agent:
 
     def send_prioritized_replay(self, buf_sock, info):
         """우선화 리플레이를 버퍼에 보냄."""
-        print("send replay.")
+        log("send replay.")
         # TODO: 우선화
         # 일단 그냥 다 보냄
         payload = pickle.dumps((self.exp_buffer, info))
@@ -111,7 +111,7 @@ class Agent:
 
 def receive_model(lrn_sock):
     """러너에게서 모델을 받음."""
-    print("receive model from learner.")
+    log("receive model from learner.")
     param = lrn_sock.recv()
     net = pickle.loads(param)
     return net
@@ -125,14 +125,13 @@ def main():
     # 고정 eps로 에이전트 생성
     epsilon = EPS_BASE ** (1 + ACTOR_NO / (NUM_ACTOR - 1) * EPS_ALPHA)
     agent = Agent(env, buffer, epsilon)
-    print("Actor {} - epsilon {:.5f}".format(ACTOR_NO, epsilon))
+    log("Actor {} - epsilon {:.5f}".format(ACTOR_NO, epsilon))
 
     # zmq 초기화
     context, lrn_sock, buf_sock = init_zmq()
     # 러너에게서 기본 가중치 받고 시작
     net = receive_model(lrn_sock)
-    net = receive_model(lrn_sock)
-    print('done')
+    log('done')
 
     #
     # 시뮬레이션

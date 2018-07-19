@@ -1,5 +1,6 @@
 """공용 상수 및 함수."""
 import sys
+import logging
 from collections import deque, namedtuple
 
 import zmq
@@ -15,8 +16,6 @@ TRAIN_IMAGE_SIZE = 84       # 학습 이미지 크기
 
 NO_OP_STEP = 30
 EXPLORE_STEPS = 1000000
-CLIP_TOP = 32
-CLIP_BOTTOM = 18
 
 
 Experience = namedtuple('Experience', field_names=['state', 'action', 'reward',
@@ -26,6 +25,8 @@ Experience = namedtuple('Experience', field_names=['state', 'action', 'reward',
 ActorInfo = namedtuple('ActorInfo',
                        field_names=['episode', 'frame', 'reward',
                                     'speed'])
+
+BufferInfo = namedtuple('BufferInfo', field_names=['replay'])
 
 
 def async_recv(sock):
@@ -130,3 +131,21 @@ def get_size(obj, seen=None):
                                                      (str, bytes, bytearray)):
         size += sum([get_size(i, seen) for i in obj])
     return size
+
+
+def float2byte(data):
+    """Float 이미지를 byte 이미지로."""
+    return np.uint8(data * 255)
+
+
+def byte2float(data):
+    """Byte 이미지를 float 이미지로."""
+    return np.float32(data / 255.0)
+
+
+def get_logger():
+    """로거 얻기."""
+    logging.basicConfig(format='%(asctime)s %(message)s',
+                        level=logging.INFO)
+    logger = logging.getLogger()
+    return logger.info

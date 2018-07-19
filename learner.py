@@ -10,7 +10,7 @@ from torch.nn import functional as F  # NOQA
 from torch import optim
 from tensorboardX import SummaryWriter
 
-from common import DQN, ENV_NAME, get_device
+from common import DQN, ENV_NAME, get_device, byte2float, get_logger
 from wrappers import make_env
 
 STOP_REWARD = 19.5
@@ -18,14 +18,12 @@ STOP_REWARD = 19.5
 GAMMA = 0.99
 BATCH_SIZE = 128
 LEARNING_RATE = 1e-4
-SYNC_TARGET_FRAMES = 1000
-REPLAY_START_SIZE = 10000
+SYNC_TARGET_FRAMES = 1000  # for GPU
 
-EPSILON_DECAY_LAST_FRAME = 10**5
-EPSILON_START = 1.0
-EPSILON_FINAL = 0.02
+GRADIENT_CLIP = 40
 
 total_q_max = 0.0
+log = get_logger()
 
 
 def init_zmq():
@@ -46,6 +44,8 @@ def calc_loss(batch, net, tgt_net, device):
     """손실 계산."""
     global total_q_max
     states, actions, rewards, dones, next_states = batch
+    states = byte2float(states)
+    next_states = byte2float(next_states)
 
     states_v = torch.tensor(states).to(device)
     next_states_v = torch.tensor(next_states).to(device)
@@ -66,7 +66,7 @@ def calc_loss(batch, net, tgt_net, device):
 
 def publish_model(net, act_sock):
     """가중치를 발행."""
-    print("publish model.")
+    log("publish model.")
     payload = pickle.dumps(net)
     act_sock.send(payload)
 
@@ -78,45 +78,61 @@ def main():
     device = get_device()
     net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
+    tgt_net.load_state_dict(net.state_dict())
     writer = SummaryWriter(comment="-" + ENV_NAME)
-    print(net)
+    log(net)
 
     # ZMQ 초기화
     context, act_sock, buf_sock = init_zmq()
-    print("Press Enter when the actors are ready: ")
+    log("Press Enter when the actors are ready: ")
     input()
     # 기본 모델을 발행해 액터 시작
-    print("Sending parameters to actors…")
+    log("sending parameters to actors…")
     publish_model(net, act_sock)
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
 
     fps = 0.0
     p_time = None
+    train_cnt = 1
     while True:
 
         # 버퍼에게 학습을 위한 배치를 요청
-        print("request new batch")
+        log("request new batch {}.".format(train_cnt))
         buf_sock.send(b'')
         payload = buf_sock.recv()
 
         if payload == b'not enough':
             # 아직 배치가 부족
-            print("not enough data to train.")
+            log("not enough data to train.")
             time.sleep(1)
         else:
             # 배치 학습
-            batch, info = pickle.loads(payload)
+            log("train batch.")
+            train_cnt += 1
+            batch, ainfo, binfo = pickle.loads(payload)
             optimizer.zero_grad()
             loss_t = calc_loss(batch, net, tgt_net, device=device)
             loss_t.backward()
 
-            writer.add_scalar("learner/fps", fps, info.frame)
-            writer.add_scalar("actor/fps", info.speed, info.frame)
-            writer.add_scalar("actor/reward", info.reward, info.frame)
-            writer.add_scalar("actor/Qmax", float(total_q_max / info.frame),
-                              info.frame)
+            # Gradient Exploding에는 BN보다 Gradient Clip이 유효
+            for param in net.parameters():
+                param.grad.data.clamp_(-GRADIENT_CLIP, GRADIENT_CLIP)
+
+            writer.add_scalar("learner/loss", float(loss_t), train_cnt)
+            writer.add_scalar("learner/fps", fps, train_cnt)
+            writer.add_scalar("learner/Qmax", float(total_q_max / ainfo.frame),
+                              ainfo.frame)
+            writer.add_scalar("buffer/replay", binfo.replay, train_cnt)
+            writer.add_scalar("actor/fps", ainfo.speed, ainfo.frame)
+            writer.add_scalar("actor/reward", ainfo.reward, ainfo.frame)
             optimizer.step()
+
+            # 타겟 네트워크 갱신
+            if train_cnt % SYNC_TARGET_FRAMES == 0:
+                log("sync target network.")
+                log(net.state_dict()['conv.0.weight'][0][0])
+                tgt_net.load_state_dict(net.state_dict())
 
         # 모델 발행
         publish_model(net, act_sock)
