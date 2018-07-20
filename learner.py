@@ -8,7 +8,9 @@ import torch
 from torch import nn
 from torch.nn import functional as F  # NOQA
 from torch import optim
+# from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tensorboardX import SummaryWriter
+from torch.nn.init import xavier_uniform_
 
 from common import DQN, ENV_NAME, get_device, byte2float, get_logger
 from wrappers import make_env
@@ -16,9 +18,8 @@ from wrappers import make_env
 STOP_REWARD = 19.5
 
 GAMMA = 0.99
-BATCH_SIZE = 128
-LEARNING_RATE = 1e-4
-SYNC_TARGET_FREQ = 70
+LEARNING_RATE = 1e-5 * 0.25
+SYNC_TARGET_FREQ = 10
 
 GRADIENT_CLIP = 40
 PUBLISH_FREQ = 20
@@ -69,11 +70,16 @@ def publish_model(net, act_sock):
     """가중치를 발행."""
     log("publish model.")
     cpu_model_state = {}
-    ts = time.time()
     for key, val in net.state_dict().items():
         cpu_model_state[key] = val.cpu()
     payload = pickle.dumps(cpu_model_state)
     act_sock.send(payload)
+
+
+def weights_init(m):
+    """가중치 xavier 초기화."""
+    if isinstance(m, nn.Conv2d):
+        xavier_uniform_(m.weight.data)
 
 
 def main():
@@ -82,9 +88,10 @@ def main():
     env = make_env(ENV_NAME)
     device = get_device()
     net = DQN(env.observation_space.shape, env.action_space.n).to(device)
+    net.apply(weights_init)
     tgt_net = DQN(env.observation_space.shape, env.action_space.n).to(device)
     tgt_net.load_state_dict(net.state_dict())
-    writer = SummaryWriter('runs', comment="-" + ENV_NAME)
+    writer = SummaryWriter(comment="-" + ENV_NAME)
     log(net)
 
     # ZMQ 초기화
@@ -93,9 +100,12 @@ def main():
     input()
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")
-    publish_model(net,act_sock)
+    publish_model(net, act_sock)
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE,
+    #                             momentum=0.9)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min')
 
     fps = 0.0
     p_time = None
@@ -109,36 +119,45 @@ def main():
 
         if payload == b'not enough':
             # 아직 배치가 부족
-            log("not enough data to train.")
+            log("not enough data to batch.")
             time.sleep(1)
         else:
             # 배치 학습
             log("train batch.")
             train_cnt += 1
+
             optimizer.zero_grad()
-            batch, ainfo, binfo = pickle.loads(payload)
+            batch, ainfos, binfo = pickle.loads(payload)
             loss_t = calc_loss(batch, net, tgt_net, device=device)
             loss_t.backward()
+            # scheduler.step(float(loss_t))
             optimizer.step()
 
             # gradient clipping
-            for param in net.parameters():
-                param.grad.data.clamp_(-GRADIENT_CLIP, GRADIENT_CLIP)
+            # for param in net.parameters():
+            #     param.grad.data.clamp_(-GRADIENT_CLIP, GRADIENT_CLIP)
 
             # 타겟 네트워크 갱신
             if train_cnt % SYNC_TARGET_FREQ == 0:
-                log("sync target network.")
+                log("sync target network - speed {} train / sec".format(fps))
                 log(net.state_dict()['conv.0.weight'][0][0])
                 tgt_net.load_state_dict(net.state_dict())
 
                 # 보드 게시
+                for name, param in net.named_parameters():
+                    writer.add_histogram("learner/" + name,
+                                         param.clone().cpu().data.numpy(),
+                                         train_cnt)
                 writer.add_scalar("learner/loss", float(loss_t), train_cnt)
-                writer.add_scalar("learner/fps", fps, train_cnt)
-                writer.add_scalar("learner/Qmax", float(total_q_max / ainfo.frame),
-                                   ainfo.frame)
+                # writer.add_scalar("learner/fps", fps, train_cnt)
+                writer.add_scalar("learner/Qmax",
+                                  float(total_q_max / train_cnt), train_cnt)
                 writer.add_scalar("buffer/replay", binfo.replay, train_cnt)
-                writer.add_scalar("actor/fps", ainfo.speed, ainfo.frame)
-                writer.add_scalar("actor/reward", ainfo.reward, ainfo.frame)
+                for ano, ainfo in ainfos.items():
+                    # writer.add_scalar("actor-{}/fps".format(ano),
+                    #                   ainfo.speed, ainfo.frame)
+                    writer.add_scalar("actor/{}-reward".format(ano),
+                                      ainfo.reward, ainfo.frame)
 
         # 모델 발행
         if train_cnt % PUBLISH_FREQ == 0:

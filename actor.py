@@ -14,13 +14,14 @@ from wrappers import make_env
 SHOW_FREQ = 100   # 로그 출력 주기
 BUFFER_SIZE = 70  # 보낼 버퍼 크기
 MODEL_UPDATE_FREQ = 300    # 러너의 모델 가져올 주기
-EPISODE_MAX_FRAME = 50000  # 한 에피소드의 최대 프레임
 EPS_BASE = 0.4   # eps 계산용
-EPS_ALPHA = 7    # eps 계산용
-ACTOR_NO = int(os.environ.get('ACTOR_NO', '-1'))   # 이 액터의 번호
-assert ACTOR_NO != -1
-NUM_ACTOR = int(os.environ.get('NUM_ACTOR', '-1'))  # 전체 액터 수
-assert NUM_ACTOR != -1
+# EPS_ALPHA = 7    # eps 계산용
+EPS_ALPHA = 1    # eps 계산용
+
+actor_no = int(os.environ.get('ACTOR_NO', '-1'))   # 이 액터의 번호
+assert actor_no != -1
+num_actor = int(os.environ.get('NUM_ACTOR', '-1'))  # 전체 액터 수
+assert num_actor != -1
 
 log = get_logger()
 
@@ -100,10 +101,10 @@ class Agent:
 
     def send_prioritized_replay(self, buf_sock, info):
         """우선화 리플레이를 버퍼에 보냄."""
-        log("send replay.")
+        log("send replay - speed {} f/s".format(info.speed))
         # TODO: 우선화
         # 일단 그냥 다 보냄
-        payload = pickle.dumps((self.exp_buffer, info))
+        payload = pickle.dumps((actor_no, self.exp_buffer, info))
         buf_sock.send(payload)
         # 버퍼 클리어 (향후 우선화되면 필요없을 듯)
         self.exp_buffer.clear()
@@ -121,10 +122,11 @@ def receive_model(lrn_sock, net, block):
         log("no new model. use old one.")
         return net
 
+    log(net.state_dict()['conv.0.weight'][0][0])
     log("received new model.")
     state_dict = pickle.loads(param)
     net.load_state_dict(state_dict)
-    return net
+    log(net.state_dict()['conv.0.weight'][0][0])
 
 
 def main():
@@ -134,15 +136,14 @@ def main():
     net = DQN(env.observation_space.shape, env.action_space.n)
     buffer = ExperienceBuffer(BUFFER_SIZE)
     # 고정 eps로 에이전트 생성
-    epsilon = EPS_BASE ** (1 + ACTOR_NO / (NUM_ACTOR - 1) * EPS_ALPHA)
+    epsilon = EPS_BASE ** (1 + actor_no / (num_actor - 1) * EPS_ALPHA)
     agent = Agent(env, buffer, epsilon)
-    log("Actor {} - epsilon {:.5f}".format(ACTOR_NO, epsilon))
+    log("Actor {} - epsilon {:.5f}".format(actor_no, epsilon))
 
     # zmq 초기화
     context, lrn_sock, buf_sock = init_zmq()
     # 러너에게서 기본 가중치 받고 시작
-    net = receive_model(lrn_sock, net, True)
-    log('done')
+    receive_model(lrn_sock, net, True)
 
     #
     # 시뮬레이션
@@ -178,7 +179,7 @@ def main():
 
         # 모델을 받을 때가 되었으면 받기
         if frame_idx % MODEL_UPDATE_FREQ == 0:
-            net = receive_model(lrn_sock, net, False)
+            receive_model(lrn_sock, net, False)
 
 
 if __name__ == '__main__':
