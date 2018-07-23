@@ -8,9 +8,9 @@ import numpy as np
 from common import ExperienceBuffer, async_recv, ActorInfo, BufferInfo,\
     get_logger
 
-REPLAY_SIZE = 100000  # FIXME 2000000
-REPLAY_START_SIZE = 10000  # FIXME 10000
-BATCH_SIZE = 256
+BUFFER_SIZE = 100000  # 원래는 2,000,000
+START_SIZE = 10000    # 원래는 50,000
+BATCH_SIZE = 256   # 전송할 배치 크기
 
 
 def average_actor_info(infos):
@@ -25,7 +25,7 @@ def average_actor_info(infos):
 
 log = get_logger()
 
-buffer = ExperienceBuffer(REPLAY_SIZE)
+memory = ExperienceBuffer(BUFFER_SIZE)
 context = zmq.Context()
 
 # 액터/러너에게서 받을 소켓
@@ -43,11 +43,12 @@ while True:
     # 액터에게서 리플레이 정보 받음
     payload = async_recv(recv)
     if payload is not None:
-        actor_no, ebuf, ainfo = pickle.loads(payload)
-        actor_infos[actor_no].append(ainfo)
+        actor_id, batch, prios, ainfo = pickle.loads(payload)
+        actor_infos[actor_id].append(ainfo)
         # 리플레이 버퍼에 병합
-        buffer.merge(ebuf)
-        log("receive replay - buffer size {}".format(len(buffer)))
+        for prio, sample in zip(prios, batch):
+            memory._append(prio, sample)
+        log("receive replay - memory size {}".format(len(memory)))
 
     # 러너가 배치를 요청했으면 보냄
     if async_recv(learner) is not None:
@@ -56,13 +57,13 @@ while True:
         else:
             ainfos = None
 
-        if len(buffer) < REPLAY_START_SIZE:
+        if len(memory) < START_SIZE:
             payload = b'not enough'
-            log("not enough data - buffer size {}".format(len(buffer)))
+            log("not enough data - memory size {}".format(len(memory)))
         else:
             # 충분하면 샘플링 후 보냄
-            batch = buffer.sample(BATCH_SIZE)
-            binfo = BufferInfo(len(buffer))
+            batch, prios = memory.sample(BATCH_SIZE)
+            binfo = BufferInfo(len(memory))
             payload = pickle.dumps((batch, ainfos, binfo))
             log("send batch")
 

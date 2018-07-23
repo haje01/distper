@@ -9,8 +9,11 @@ from torch.nn import functional as F  # NOQA
 import numpy as np
 import torch
 from torch import nn
+from torch.nn.init import xavier_uniform_
 
 from sumtree import SumTree
+
+GAMMA = 0.99
 
 ENV_NAME = "PongNoFrameskip-v4"
 
@@ -98,15 +101,18 @@ class ExperienceBuffer:
         return (error + self.e) ** self.a
 
     def append(self, error, sample):
-        """경험 추가."""
-        p = self._get_priority(error)
+        """에러로 경험 추가."""
+        p = self.get_priority(error)
         self.tree.add(p, sample)
-        # self.buffer.append(experience)
+
+    def _append(self, prio, sample):
+        """우선 순위로 경험 추가."""
+        self.tree.add(prio, sample)
 
     def sample(self, n):
         """우선 샘플링."""
         batch = []
-        idxs = []
+        # idxs = []
         segment = self.tree.total() / n
         priorities = []
 
@@ -120,14 +126,14 @@ class ExperienceBuffer:
             (idx, p, data) = self.tree.get(s)
             priorities.append(p)
             batch.append(data)
-            idxs.append(idx)
+            # idxs.append(idx)
 
-        sampling_probabilities = priorities / self.tree.total()
-        is_weight = np.power(self.tree.n_entries * sampling_probabilities,
-                             -self.beta)
-        is_weight /= is_weight.max()
+        # sampling_probabilities = priorities / self.tree.total()
+        # is_weight = np.power(self.tree.n_entries * sampling_probabilities,
+        #                      -self.beta)
+        # is_weight /= is_weight.max()
 
-        return batch, idxs, is_weight
+        return batch, priorities
 
     def update(self, idx, error):
         """우선 트리 갱신."""
@@ -191,3 +197,45 @@ def get_logger():
                         level=logging.INFO)
     logger = logging.getLogger()
     return logger.info
+
+
+def calc_loss(batch, net, tgt_net, device='cpu'):
+    """손실 계산."""
+    states, actions, rewards, dones, next_states = batch
+
+    states = byte2float(states)
+    next_states = byte2float(next_states)
+
+    states_v = torch.tensor(states).to(device)
+    next_states_v = torch.tensor(next_states).to(device)
+    actions_v = torch.tensor(actions).to(device)
+    rewards_v = torch.tensor(rewards).to(device)
+    done_mask = torch.ByteTensor(dones).to(device)
+
+    qs = net(states_v)
+    q_maxs = float(qs[0].max())
+    state_action_values = qs.gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
+    next_state_values = tgt_net(next_states_v).max(1)[0]
+    next_state_values[done_mask] = 0.0
+    next_state_values = next_state_values.detach()
+
+    expected_state_action_values = next_state_values * GAMMA + rewards_v
+    losses = nn.MSELoss()(state_action_values, expected_state_action_values)
+    return losses, q_maxs
+
+
+def weights_init(m):
+    """가중치 xavier 초기화."""
+    if isinstance(m, nn.Conv2d):
+        xavier_uniform_(m.weight.data)
+
+
+def array_experience(state, action, reward, is_done, new_state):
+    """단일 경험을 array 형으로 만듦."""
+    return Experience(
+        np.array([state], dtype=np.uint8),
+        np.array([action]),
+        np.array([reward], dtype=np.float32),
+        np.array([is_done], dtype=np.uint8),
+        np.array([new_state], dtype=np.uint8)
+    )

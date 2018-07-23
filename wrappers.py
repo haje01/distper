@@ -1,3 +1,6 @@
+"""Gym wrapper 모듈."""
+# from https://github.com/Shmuma/ptan
+
 import cv2
 import gym
 import gym.spaces

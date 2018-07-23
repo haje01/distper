@@ -2,24 +2,27 @@
 import os
 import time
 import pickle
+from io import BytesIO
 
 import zmq
 import numpy as np
 import torch
 
-from common import Experience, ExperienceBuffer, ENV_NAME, ActorInfo,\
-    float2byte, byte2float, get_logger, DQN, async_recv
+from common import ExperienceBuffer, ENV_NAME, ActorInfo, array_experience,\
+    float2byte, byte2float, get_logger, DQN, async_recv, weights_init,\
+    calc_loss
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
-BUFFER_SIZE = 70  # 보낼 버퍼 크기
+BUFFER_SIZE = 1000  # 버퍼 전이 수
+SEND_SIZE = 100     # 보낼 전이 수
 MODEL_UPDATE_FREQ = 300    # 러너의 모델 가져올 주기
 EPS_BASE = 0.4   # eps 계산용
 # EPS_ALPHA = 7    # eps 계산용
 EPS_ALPHA = 1    # eps 계산용
 
-actor_no = int(os.environ.get('ACTOR_NO', '-1'))   # 이 액터의 번호
-assert actor_no != -1
+actor_id = int(os.environ.get('ACTOR_ID', '-1'))    # 액터의 ID
+assert actor_id != -1
 num_actor = int(os.environ.get('NUM_ACTOR', '-1'))  # 전체 액터 수
 assert num_actor != -1
 
@@ -45,10 +48,10 @@ def init_zmq():
 class Agent:
     """에이전트."""
 
-    def __init__(self, env, exp_buffer, epsilon):
+    def __init__(self, env, memory, epsilon):
         """초기화."""
         self.env = env
-        self.exp_buffer = exp_buffer
+        self.memory = memory
         self.epsilon = epsilon
         self._reset()
 
@@ -57,7 +60,7 @@ class Agent:
         self.state = float2byte(self.env.reset())
         self.tot_reward = 0.0
 
-    def play_step(self, net, epsilon, frame_idx):
+    def play_step(self, net, tgt_net, epsilon, frame_idx):
         """플레이 진행."""
         done_reward = None
 
@@ -79,12 +82,12 @@ class Agent:
         self.tot_reward += reward
 
         # 버퍼에 추가
-        exp = Experience(self.state, action, reward, is_done, new_state)
-        self.exp_buffer.append(exp)
+        exp = array_experience(self.state, action, reward, is_done, new_state)
+        self.append_sample(exp, net, tgt_net)
         self.state = new_state
 
         if frame_idx % SHOW_FREQ == 0:
-            log("{}: buffer size {} ".format(frame_idx, len(self.exp_buffer)))
+            log("{}: buffer size {} ".format(frame_idx, len(self.memory)))
 
         # 종료되었으면 리셋
         if is_done:
@@ -94,39 +97,41 @@ class Agent:
         # 에피소드 리워드 반환
         return done_reward
 
-    @property
-    def exp_full(self):
-        """경험 버퍼가 다 찼는지 여부."""
-        return len(self.exp_buffer) == BUFFER_SIZE
+    def append_sample(self, sample, net, tgt_net):
+        """샘플의 에러를 구해 샘플과 함께 추가."""
+        loss_t, _ = calc_loss(sample, net, tgt_net)
+        error = float(loss_t)
+        self.memory.append(error, sample)
 
     def send_prioritized_replay(self, buf_sock, info):
-        """우선화 리플레이를 버퍼에 보냄."""
+        """우선 순위로 샘플링한 리프레이 데이터와 정보를 전송."""
         log("send replay - speed {} f/s".format(info.speed))
-        # TODO: 우선화
-        # 일단 그냥 다 보냄
-        payload = pickle.dumps((actor_no, self.exp_buffer, info))
+        batch, prios = self.memory.sample(SEND_SIZE)
+        payload = pickle.dumps((actor_id, batch, prios, info))
         buf_sock.send(payload)
-        # 버퍼 클리어 (향후 우선화되면 필요없을 듯)
-        self.exp_buffer.clear()
 
 
-def receive_model(lrn_sock, net, block):
+def receive_model(lrn_sock, net, tgt_net, block):
     """러너에게서 모델을 받음."""
     log("receive model from learner.")
     if block:
-        param = lrn_sock.recv()
+        payload = lrn_sock.recv()
     else:
-        param = async_recv(lrn_sock)
+        payload = async_recv(lrn_sock)
 
-    if param is None:
+    if payload is None:
         log("no new model. use old one.")
-        return net
+        return net, tgt_net
 
-    log(net.state_dict()['conv.0.weight'][0][0])
+    bio = BytesIO(payload)
     log("received new model.")
-    state_dict = pickle.loads(param)
-    net.load_state_dict(state_dict)
+    net = torch.load(bio)
+    tgt_net = torch.load(bio)
+    log('net --- ')
     log(net.state_dict()['conv.0.weight'][0][0])
+    log('tgt_net --- ')
+    log(tgt_net.state_dict()['conv.0.weight'][0][0])
+    return net, tgt_net
 
 
 def main():
@@ -134,16 +139,20 @@ def main():
     # 환경 생성
     env = make_env(ENV_NAME)
     net = DQN(env.observation_space.shape, env.action_space.n)
-    buffer = ExperienceBuffer(BUFFER_SIZE)
+    net.apply(weights_init)
+    tgt_net = DQN(env.observation_space.shape, env.action_space.n)
+    tgt_net.load_state_dict(net.state_dict())
+
+    memory = ExperienceBuffer(BUFFER_SIZE)
     # 고정 eps로 에이전트 생성
-    epsilon = EPS_BASE ** (1 + actor_no / (num_actor - 1) * EPS_ALPHA)
-    agent = Agent(env, buffer, epsilon)
-    log("Actor {} - epsilon {:.5f}".format(actor_no, epsilon))
+    epsilon = EPS_BASE ** (1 + actor_id / (num_actor - 1) * EPS_ALPHA)
+    agent = Agent(env, memory, epsilon)
+    log("Actor {} - epsilon {:.5f}".format(actor_id, epsilon))
 
     # zmq 초기화
     context, lrn_sock, buf_sock = init_zmq()
     # 러너에게서 기본 가중치 받고 시작
-    receive_model(lrn_sock, net, True)
+    net, tgt_net = receive_model(lrn_sock, net, tgt_net, True)
 
     #
     # 시뮬레이션
@@ -156,22 +165,22 @@ def main():
         frame_idx += 1
 
         # 스텝 진행 (에피소드 종료면 reset까지)
-        reward = agent.play_step(net, epsilon, frame_idx)
+        reward = agent.play_step(net, tgt_net, epsilon, frame_idx)
 
         # 리워드가 있는 경우 (에피소드 종료)
         if reward is not None:
             episode += 1
             p_reward = reward
 
-        # 버퍼가 찼으면
-        if agent.exp_full:
+        # 버퍼가 보낼 크기 이상으로 찼으면
+        if len(agent.memory) >= SEND_SIZE:
             # 학습관련 정보
             if p_time is None:
                 speed = 0.0
             else:
                 speed = (frame_idx - p_frame) / (time.time() - p_time)
             info = ActorInfo(episode, frame_idx, p_reward, speed)
-            # 버퍼와 정보 전송
+            # 리플레이 정보와 정보 전송
             agent.send_prioritized_replay(buf_sock, info)
 
             p_time = time.time()
@@ -179,7 +188,8 @@ def main():
 
         # 모델을 받을 때가 되었으면 받기
         if frame_idx % MODEL_UPDATE_FREQ == 0:
-            receive_model(lrn_sock, net, False)
+            net, tgt_net = receive_model(lrn_sock, net, tgt_net, False)
+
 
 
 if __name__ == '__main__':

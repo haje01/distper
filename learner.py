@@ -2,27 +2,26 @@
 
 import time
 import pickle
+from io import BytesIO
 
 import zmq
+import numpy as np
 import torch
-from torch import nn
 from torch.nn import functional as F  # NOQA
 from torch import optim
 # from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tensorboardX import SummaryWriter
-from torch.nn.init import xavier_uniform_
 
-from common import DQN, ENV_NAME, get_device, byte2float, get_logger
+from common import DQN, ENV_NAME, get_device, get_logger, calc_loss,\
+    weights_init, Experience
 from wrappers import make_env
 
 STOP_REWARD = 19.5
 
-GAMMA = 0.99
 LEARNING_RATE = 1e-5 * 0.25
 SYNC_TARGET_FREQ = 10
 
 GRADIENT_CLIP = 40
-PUBLISH_FREQ = 20
 
 total_q_max = 0.0
 log = get_logger()
@@ -42,44 +41,18 @@ def init_zmq():
     return context, act_sock, buf_sock
 
 
-def calc_loss(batch, net, tgt_net, device):
-    """손실 계산."""
-    global total_q_max
-    states, actions, rewards, dones, next_states = batch
-    states = byte2float(states)
-    next_states = byte2float(next_states)
-
-    states_v = torch.tensor(states).to(device)
-    next_states_v = torch.tensor(next_states).to(device)
-    actions_v = torch.tensor(actions).to(device)
-    rewards_v = torch.tensor(rewards).to(device)
-    done_mask = torch.ByteTensor(dones).to(device)
-
-    qs = net(states_v)
-    total_q_max += float(qs[0].max())
-    state_action_values = qs.gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
-    next_state_values = tgt_net(next_states_v).max(1)[0]
-    next_state_values[done_mask] = 0.0
-    next_state_values = next_state_values.detach()
-
-    expected_state_action_values = next_state_values * GAMMA + rewards_v
-    return nn.MSELoss()(state_action_values, expected_state_action_values)
-
-
-def publish_model(net, act_sock):
+def publish_model(net, tgt_net, act_sock):
     """가중치를 발행."""
     log("publish model.")
-    cpu_model_state = {}
-    for key, val in net.state_dict().items():
-        cpu_model_state[key] = val.cpu()
-    payload = pickle.dumps(cpu_model_state)
-    act_sock.send(payload)
-
-
-def weights_init(m):
-    """가중치 xavier 초기화."""
-    if isinstance(m, nn.Conv2d):
-        xavier_uniform_(m.weight.data)
+    bio = BytesIO()
+    torch.save(net, bio)
+    torch.save(tgt_net, bio)
+    act_sock.send(bio.getvalue())
+    # cpu_model_state = {}
+    # for key, val in net.state_dict().items():
+    #     cpu_model_state[key] = val.cpu()
+    # payload = pickle.dumps(cpu_model_state)
+    # act_sock.send(payload)
 
 
 def main():
@@ -100,7 +73,7 @@ def main():
     input()
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")
-    publish_model(net, act_sock)
+    publish_model(net, tgt_net, act_sock)
 
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
     # optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE,
@@ -127,8 +100,9 @@ def main():
             train_cnt += 1
 
             optimizer.zero_grad()
-            batch, ainfos, binfo = pickle.loads(payload)
-            loss_t = calc_loss(batch, net, tgt_net, device=device)
+            exps, ainfos, binfo = pickle.loads(payload)
+            batch = Experience(*map(np.concatenate, zip(*exps)))
+            loss_t, q_maxs = calc_loss(batch, net, tgt_net, device=device)
             loss_t.backward()
             # scheduler.step(float(loss_t))
             optimizer.step()
@@ -160,8 +134,7 @@ def main():
                                       ainfo.reward, ainfo.frame)
 
         # 모델 발행
-        if train_cnt % PUBLISH_FREQ == 0:
-            publish_model(net, act_sock)
+        publish_model(net, tgt_net, act_sock)
 
         if p_time is not None:
             elapsed = time.time() - p_time
