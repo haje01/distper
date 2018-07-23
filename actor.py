@@ -54,13 +54,25 @@ class Agent:
         self.env = env
         self.memory = memory
         self.epsilon = epsilon
-        self.action_cnt = defaultdict(int)
         self._reset()
 
     def _reset(self):
         """리셋 구현."""
         self.state = float2byte(self.env.reset())
         self.tot_reward = 0.0
+        self.action_cnt = defaultdict(int)
+
+    def show_action_rate(self):
+        """동작별 선택 비율 표시."""
+        meanings = self.env.unwrapped.get_action_meanings()
+        total = float(sum(self.action_cnt.values()))
+        if total == 0:
+            return
+        msg = "actions - "
+        for i, m in enumerate(meanings):
+            msg += "{}: {:.2f}, ".format(meanings[i],
+                                         self.action_cnt[i] / total)
+        log(msg)
 
     def play_step(self, net, tgt_net, epsilon, frame_idx):
         """플레이 진행."""
@@ -78,7 +90,6 @@ class Agent:
             _, act_v = torch.max(q_vals_v, dim=1)
             action = int(act_v.item())
         self.action_cnt[action] += 1
-        print("action count: {}".format(self.action_cnt))
 
         # 환경 진행
         new_state, reward, is_done, _ = self.env.step(action)
@@ -186,6 +197,8 @@ def main():
             info = ActorInfo(episode, frame_idx, p_reward, speed)
             # 리플레이 정보와 정보 전송
             agent.send_prioritized_replay(buf_sock, info)
+            # 동작 선택 횟수
+            agent.show_action_rate()
 
             p_time = time.time()
             p_frame = frame_idx

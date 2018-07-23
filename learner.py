@@ -82,6 +82,7 @@ def main():
     fps = total_q_max = 0.0
     p_time = idxs = errors = None
     train_cnt = 1
+    max_reward = -1000
     while True:
 
         # 버퍼에게 학습을 위한 배치를 요청
@@ -134,6 +135,12 @@ def main():
                     #                   ainfo.speed, ainfo.frame)
                     writer.add_scalar("actor/{}-reward".format(ano),
                                       ainfo.reward, ainfo.frame)
+
+            # 최고 리워드 모델 저장
+            mean_reward = np.mean([ainfo.reward for ainfo in ainfos.values()])
+            if mean_reward > max_reward:
+                log("save best model")
+                torch.save(net, ENV_NAME + "-best.dat")
 
         # 모델 발행
         publish_model(net, tgt_net, act_sock)

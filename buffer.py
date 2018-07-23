@@ -56,6 +56,9 @@ while True:
         # 러너 학습 에러 버퍼에 반영
         idxs, errors = pickle.loads(payload)
         if idxs is not None:
+            print("update by learner")
+            print("  idxs: {}".format(idxs))
+            print("  error: {}".format(errors))
             for i in range(len(errors)):
                 memory.update(idxs[i], errors[i])
 
