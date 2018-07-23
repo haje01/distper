@@ -3,6 +3,7 @@ import os
 import time
 import pickle
 from io import BytesIO
+from collections import defaultdict
 
 import zmq
 import numpy as np
@@ -53,6 +54,7 @@ class Agent:
         self.env = env
         self.memory = memory
         self.epsilon = epsilon
+        self.action_cnt = defaultdict(int)
         self._reset()
 
     def _reset(self):
@@ -67,7 +69,6 @@ class Agent:
         if np.random.random() < self.epsilon:
             # 임의 동작
             action = self.env.action_space.sample()
-            print("random action {}".format(action))
         else:
             # 가치가 높은 동작.
             state = byte2float(self.state)
@@ -76,7 +77,8 @@ class Agent:
             q_vals_v = net(state_v)
             _, act_v = torch.max(q_vals_v, dim=1)
             action = int(act_v.item())
-            print("model action {}".format(action))
+        self.action_cnt[action] += 1
+        print("action count: {}".format(self.action_cnt))
 
         # 환경 진행
         new_state, reward, is_done, _ = self.env.step(action)

@@ -221,7 +221,7 @@ def calc_loss(batch, net, tgt_net, device='cpu'):
     done_mask = torch.ByteTensor(dones).to(device)
 
     qs = net(states_v)
-    q_maxs = qs.data.numpy().max(axis=1)
+    q_maxs = qs.data.cpu().numpy().max(axis=1)
     state_action_values = qs.gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
     next_state_values = tgt_net(next_states_v).max(1)[0]
     next_state_values[done_mask] = 0.0
@@ -229,8 +229,7 @@ def calc_loss(batch, net, tgt_net, device='cpu'):
 
     expected_state_action_values = next_state_values * GAMMA + rewards_v
     errors = torch.abs(state_action_values - expected_state_action_values)\
-        .data.numpy()
-    print(states.shape)
+        .data.cpu().numpy()
     losses = nn.MSELoss()(state_action_values, expected_state_action_values)
     return losses, errors, q_maxs
 

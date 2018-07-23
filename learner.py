@@ -18,7 +18,7 @@ from wrappers import make_env
 
 STOP_REWARD = 19.5
 
-LEARNING_RATE = 1e-5 * 0.25
+LEARNING_RATE = 1e-5
 SYNC_TARGET_FREQ = 10
 
 GRADIENT_CLIP = 40
