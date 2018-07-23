@@ -136,6 +136,7 @@ class Agent:
         else:
             # 아니면 다보냄
             payload = pickle.dumps((actor_id, self.memory, info))
+            self.memory.clear()
 
         buf_sock.send(payload)
 
