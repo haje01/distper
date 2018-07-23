@@ -23,7 +23,6 @@ SYNC_TARGET_FREQ = 10
 
 GRADIENT_CLIP = 40
 
-total_q_max = 0.0
 log = get_logger()
 
 
@@ -80,14 +79,15 @@ def main():
     #                             momentum=0.9)
     # scheduler = ReduceLROnPlateau(optimizer, 'min')
 
-    fps = 0.0
-    p_time = None
+    fps = total_q_max = 0.0
+    p_time = idxs = errors = None
     train_cnt = 1
     while True:
 
         # 버퍼에게 학습을 위한 배치를 요청
         log("request new batch {}.".format(train_cnt))
-        buf_sock.send(b'')
+        payload = pickle.dumps((idxs, errors))
+        buf_sock.send(payload)
         payload = buf_sock.recv()
 
         if payload == b'not enough':
@@ -99,12 +99,14 @@ def main():
             log("train batch.")
             train_cnt += 1
 
-            optimizer.zero_grad()
-            exps, ainfos, binfo = pickle.loads(payload)
+            exps, idxs, ainfos, binfo = pickle.loads(payload)
             batch = Experience(*map(np.concatenate, zip(*exps)))
-            loss_t, q_maxs = calc_loss(batch, net, tgt_net, device=device)
+            loss_t, errors, q_maxs = calc_loss(batch, net, tgt_net,
+                                               device=device)
+            optimizer.zero_grad()
             loss_t.backward()
             # scheduler.step(float(loss_t))
+            total_q_max += q_maxs.mean()
             optimizer.step()
 
             # gradient clipping

@@ -2,7 +2,7 @@
 import sys
 import logging
 import random
-from collections import namedtuple
+from collections import namedtuple, deque
 
 import zmq
 from torch.nn import functional as F  # NOQA
@@ -82,6 +82,39 @@ class DQN(nn.Module):
 class ExperienceBuffer:
     """경험 버퍼."""
 
+    def __init__(self, capacity):
+        """초기화."""
+        self.buffer = deque(maxlen=capacity)
+
+    def __len__(self):
+        """길이 연산자."""
+        return len(self.buffer)
+
+    def append(self, experience):
+        """경험 추가."""
+        self.buffer.append(experience)
+
+    def merge(self, other):
+        """다른 버퍼 내용을 병합."""
+        self.buffer += other.buffer
+
+    def sample(self, batch_size):
+        """경험 샘플링."""
+        indices = np.random.choice(len(self.buffer), batch_size, replace=False)
+        states, actions, rewards, dones, next_states =\
+            zip(*[self.buffer[idx] for idx in indices])
+        return np.array(states), np.array(actions), \
+            np.array(rewards, dtype=np.float32), \
+            np.array(dones, dtype=np.uint8), np.array(next_states)
+
+    def clear(self):
+        """버퍼 초기화."""
+        self.buffer.clear()
+
+
+class ExperiencePriorityBuffer:
+    """경험 우선순위 버퍼."""
+
     e = 0.01
     a = 0.6
     beta = 0.4
@@ -90,7 +123,6 @@ class ExperienceBuffer:
     def __init__(self, capacity):
         """초기화."""
         self.tree = SumTree(capacity)
-        # self.buffer = deque(maxlen=capacity)
 
     def __len__(self):
         """길이 연산자."""
@@ -112,7 +144,7 @@ class ExperienceBuffer:
     def sample(self, n):
         """우선 샘플링."""
         batch = []
-        # idxs = []
+        idxs = []
         segment = self.tree.total() / n
         priorities = []
 
@@ -124,51 +156,27 @@ class ExperienceBuffer:
 
             s = random.uniform(a, b)
             (idx, p, data) = self.tree.get(s)
+            idxs.append(idx)
             priorities.append(p)
             batch.append(data)
-            # idxs.append(idx)
 
-        # sampling_probabilities = priorities / self.tree.total()
-        # is_weight = np.power(self.tree.n_entries * sampling_probabilities,
-        #                      -self.beta)
-        # is_weight /= is_weight.max()
-
-        return batch, priorities
+        return batch, idxs, priorities
 
     def update(self, idx, error):
         """우선 트리 갱신."""
-        p = self._get_priority(error)
+        p = self.get_priority(error)
         self.tree.update(idx, p)
-
-    # def merge(self, other):
-    #     """다른 버퍼 내용을 병합."""
-    #     self.buffer += other.buffer
-
-    # def sample(self, batch_size):
-    #     """경험 샘플링."""
-    #     indices = np.random.choice(len(self.buffer), batch_size,
-    # replace=False)
-    #     states, actions, rewards, dones, next_states =\
-    #         zip(*[self.buffer[idx] for idx in indices])
-    #     return np.array(states), np.array(actions), \
-    #         np.array(rewards, dtype=np.float32), \
-    #         np.array(dones, dtype=np.uint8), np.array(next_states)
-
-    # def clear(self):
-    #     """버퍼 초기화."""
-    #     self.buffer.clear()
 
 
 def get_size(obj, seen=None):
-    """Recursively finds size of objects."""
+    """객체의 실재크기를 재귀적으로 얻음."""
     size = sys.getsizeof(obj)
     if seen is None:
         seen = set()
     obj_id = id(obj)
     if obj_id in seen:
         return 0
-    # Important mark as seen *before* entering recursion to gracefully handle
-    # self-referential objects
+
     seen.add(obj_id)
     if isinstance(obj, dict):
         size += sum([get_size(v, seen) for v in obj.values()])
@@ -213,15 +221,18 @@ def calc_loss(batch, net, tgt_net, device='cpu'):
     done_mask = torch.ByteTensor(dones).to(device)
 
     qs = net(states_v)
-    q_maxs = float(qs[0].max())
+    q_maxs = qs.data.numpy().max(axis=1)
     state_action_values = qs.gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
     next_state_values = tgt_net(next_states_v).max(1)[0]
     next_state_values[done_mask] = 0.0
     next_state_values = next_state_values.detach()
 
     expected_state_action_values = next_state_values * GAMMA + rewards_v
+    errors = torch.abs(state_action_values - expected_state_action_values)\
+        .data.numpy()
+    print(states.shape)
     losses = nn.MSELoss()(state_action_values, expected_state_action_values)
-    return losses, q_maxs
+    return losses, errors, q_maxs
 
 
 def weights_init(m):

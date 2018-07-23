@@ -8,9 +8,9 @@ import zmq
 import numpy as np
 import torch
 
-from common import ExperienceBuffer, ENV_NAME, ActorInfo, array_experience,\
+from common import ExperiencePriorityBuffer, ENV_NAME, ActorInfo, calc_loss,\
     float2byte, byte2float, get_logger, DQN, async_recv, weights_init,\
-    calc_loss
+    array_experience
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
@@ -67,6 +67,7 @@ class Agent:
         if np.random.random() < self.epsilon:
             # 임의 동작
             action = self.env.action_space.sample()
+            print("random action {}".format(action))
         else:
             # 가치가 높은 동작.
             state = byte2float(self.state)
@@ -75,6 +76,7 @@ class Agent:
             q_vals_v = net(state_v)
             _, act_v = torch.max(q_vals_v, dim=1)
             action = int(act_v.item())
+            print("model action {}".format(action))
 
         # 환경 진행
         new_state, reward, is_done, _ = self.env.step(action)
@@ -99,14 +101,14 @@ class Agent:
 
     def append_sample(self, sample, net, tgt_net):
         """샘플의 에러를 구해 샘플과 함께 추가."""
-        loss_t, _ = calc_loss(sample, net, tgt_net)
+        loss_t, _, _ = calc_loss(sample, net, tgt_net)
         error = float(loss_t)
         self.memory.append(error, sample)
 
     def send_prioritized_replay(self, buf_sock, info):
         """우선 순위로 샘플링한 리프레이 데이터와 정보를 전송."""
         log("send replay - speed {} f/s".format(info.speed))
-        batch, prios = self.memory.sample(SEND_SIZE)
+        batch, _, prios = self.memory.sample(SEND_SIZE)
         payload = pickle.dumps((actor_id, batch, prios, info))
         buf_sock.send(payload)
 
@@ -125,11 +127,11 @@ def receive_model(lrn_sock, net, tgt_net, block):
 
     bio = BytesIO(payload)
     log("received new model.")
-    net = torch.load(bio)
-    tgt_net = torch.load(bio)
-    log('net --- ')
+    net = torch.load(bio, map_location={'cuda:0': 'cpu'})
+    tgt_net = torch.load(bio, map_location={'cuda:0': 'cpu'})
+    log('net')
     log(net.state_dict()['conv.0.weight'][0][0])
-    log('tgt_net --- ')
+    log('tgt_net')
     log(tgt_net.state_dict()['conv.0.weight'][0][0])
     return net, tgt_net
 
@@ -143,7 +145,7 @@ def main():
     tgt_net = DQN(env.observation_space.shape, env.action_space.n)
     tgt_net.load_state_dict(net.state_dict())
 
-    memory = ExperienceBuffer(BUFFER_SIZE)
+    memory = ExperiencePriorityBuffer(BUFFER_SIZE)
     # 고정 eps로 에이전트 생성
     epsilon = EPS_BASE ** (1 + actor_id / (num_actor - 1) * EPS_ALPHA)
     agent = Agent(env, memory, epsilon)
@@ -189,7 +191,6 @@ def main():
         # 모델을 받을 때가 되었으면 받기
         if frame_idx % MODEL_UPDATE_FREQ == 0:
             net, tgt_net = receive_model(lrn_sock, net, tgt_net, False)
-
 
 
 if __name__ == '__main__':

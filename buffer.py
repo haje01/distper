@@ -5,8 +5,8 @@ from collections import defaultdict
 import zmq
 import numpy as np
 
-from common import ExperienceBuffer, async_recv, ActorInfo, BufferInfo,\
-    get_logger
+from common import ExperiencePriorityBuffer, async_recv, ActorInfo,\
+    BufferInfo, get_logger
 
 BUFFER_SIZE = 100000  # 원래는 2,000,000
 START_SIZE = 10000    # 원래는 50,000
@@ -25,7 +25,7 @@ def average_actor_info(infos):
 
 log = get_logger()
 
-memory = ExperienceBuffer(BUFFER_SIZE)
+memory = ExperiencePriorityBuffer(BUFFER_SIZE)
 context = zmq.Context()
 
 # 액터/러너에게서 받을 소켓
@@ -51,7 +51,15 @@ while True:
         log("receive replay - memory size {}".format(len(memory)))
 
     # 러너가 배치를 요청했으면 보냄
-    if async_recv(learner) is not None:
+    payload = async_recv(learner)
+    if payload is not None:
+        # 러너 학습 에러 버퍼에 반영
+        idxs, errors = pickle.loads(payload)
+        if idxs is not None:
+            for i in range(len(errors)):
+                memory.update(idxs[i], errors[i])
+
+        # 러너가 보낸 베치와 에러
         if len(actor_infos) > 0:
             ainfos = average_actor_info(actor_infos)
         else:
@@ -62,9 +70,9 @@ while True:
             log("not enough data - memory size {}".format(len(memory)))
         else:
             # 충분하면 샘플링 후 보냄
-            batch, prios = memory.sample(BATCH_SIZE)
+            batch, idxs, prios = memory.sample(BATCH_SIZE)
             binfo = BufferInfo(len(memory))
-            payload = pickle.dumps((batch, ainfos, binfo))
+            payload = pickle.dumps((batch, idxs, ainfos, binfo))
             log("send batch")
 
         # 전송
