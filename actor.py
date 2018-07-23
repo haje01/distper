@@ -9,9 +9,9 @@ import zmq
 import numpy as np
 import torch
 
-from common import ExperiencePriorityBuffer, ENV_NAME, ActorInfo, calc_loss,\
-    float2byte, byte2float, get_logger, DQN, async_recv, weights_init,\
-    array_experience
+from common import ExperienceBuffer, ExperiencePriorityBuffer, ENV_NAME,\
+    ActorInfo, calc_loss, float2byte, byte2float, get_logger, DQN, async_recv,\
+    weights_init, array_experience, PRIORITIZED, Experience
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
@@ -49,11 +49,12 @@ def init_zmq():
 class Agent:
     """에이전트."""
 
-    def __init__(self, env, memory, epsilon):
+    def __init__(self, env, memory, epsilon, prioritized):
         """초기화."""
         self.env = env
         self.memory = memory
         self.epsilon = epsilon
+        self.prioritized = prioritized
         self._reset()
 
     def _reset(self):
@@ -97,7 +98,11 @@ class Agent:
         self.tot_reward += reward
 
         # 버퍼에 추가
-        exp = array_experience(self.state, action, reward, is_done, new_state)
+        if self.prioritized:
+            exp = array_experience(self.state, action, reward, is_done,
+                                   new_state)
+        else:
+            exp = Experience(self.state, action, reward, is_done, new_state)
         self.append_sample(exp, net, tgt_net)
         self.state = new_state
 
@@ -114,15 +119,24 @@ class Agent:
 
     def append_sample(self, sample, net, tgt_net):
         """샘플의 에러를 구해 샘플과 함께 추가."""
-        loss_t, _, _ = calc_loss(sample, net, tgt_net)
-        error = float(loss_t)
-        self.memory.append(error, sample)
+        if self.prioritized:
+            loss_t, _, _ = calc_loss(sample, net, tgt_net)
+            error = float(loss_t)
+            self.memory.append(error, sample)
+        else:
+            self.memory.append(sample)
 
-    def send_prioritized_replay(self, buf_sock, info):
+    def send_replay(self, buf_sock, info):
         """우선 순위로 샘플링한 리프레이 데이터와 정보를 전송."""
         log("send replay - speed {} f/s".format(info.speed))
-        batch, _, prios = self.memory.sample(SEND_SIZE)
-        payload = pickle.dumps((actor_id, batch, prios, info))
+        if self.prioritized:
+            # 우선화시 샘플링 하여 보냄
+            batch, _, prios = self.memory.sample(SEND_SIZE)
+            payload = pickle.dumps((actor_id, batch, prios, info))
+        else:
+            # 아니면 다보냄
+            payload = pickle.dumps((actor_id, self.memory, info))
+
         buf_sock.send(payload)
 
 
@@ -158,10 +172,14 @@ def main():
     tgt_net = DQN(env.observation_space.shape, env.action_space.n)
     tgt_net.load_state_dict(net.state_dict())
 
-    memory = ExperiencePriorityBuffer(BUFFER_SIZE)
+    if PRIORITIZED:
+        memory = ExperiencePriorityBuffer(BUFFER_SIZE)
+    else:
+        memory = ExperienceBuffer(BUFFER_SIZE)
+
     # 고정 eps로 에이전트 생성
     epsilon = EPS_BASE ** (1 + actor_id / (num_actor - 1) * EPS_ALPHA)
-    agent = Agent(env, memory, epsilon)
+    agent = Agent(env, memory, epsilon, PRIORITIZED)
     log("Actor {} - epsilon {:.5f}".format(actor_id, epsilon))
 
     # zmq 초기화
@@ -196,7 +214,7 @@ def main():
                 speed = (frame_idx - p_frame) / (time.time() - p_time)
             info = ActorInfo(episode, frame_idx, p_reward, speed)
             # 리플레이 정보와 정보 전송
-            agent.send_prioritized_replay(buf_sock, info)
+            agent.send_replay(buf_sock, info)
             # 동작 선택 횟수
             agent.show_action_rate()
 

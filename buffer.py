@@ -5,8 +5,8 @@ from collections import defaultdict
 import zmq
 import numpy as np
 
-from common import ExperiencePriorityBuffer, async_recv, ActorInfo,\
-    BufferInfo, get_logger
+from common import ExperienceBuffer, ExperiencePriorityBuffer, async_recv,\
+    ActorInfo, BufferInfo, get_logger, PRIORITIZED
 
 BUFFER_SIZE = 100000  # 원래는 2,000,000
 START_SIZE = 10000    # 원래는 50,000
@@ -25,7 +25,11 @@ def average_actor_info(infos):
 
 log = get_logger()
 
-memory = ExperiencePriorityBuffer(BUFFER_SIZE)
+if PRIORITIZED:
+    memory = ExperiencePriorityBuffer(BUFFER_SIZE)
+else:
+    memory = ExperienceBuffer(BUFFER_SIZE)
+
 context = zmq.Context()
 
 # 액터/러너에게서 받을 소켓
@@ -43,24 +47,31 @@ while True:
     # 액터에게서 리플레이 정보 받음
     payload = async_recv(recv)
     if payload is not None:
-        actor_id, batch, prios, ainfo = pickle.loads(payload)
+        if PRIORITIZED:
+            actor_id, batch, prios, ainfo = pickle.loads(payload)
+            # 리플레이 버퍼에 병합
+            for prio, sample in zip(prios, batch):
+                memory._append(prio, sample)
+        else:
+            actor_id, batch, ainfo = pickle.loads(payload)
+            # 리플레이 버퍼에 병합
+            memory.merge(batch)
         actor_infos[actor_id].append(ainfo)
-        # 리플레이 버퍼에 병합
-        for prio, sample in zip(prios, batch):
-            memory._append(prio, sample)
+
         log("receive replay - memory size {}".format(len(memory)))
 
     # 러너가 배치를 요청했으면 보냄
     payload = async_recv(learner)
     if payload is not None:
-        # 러너 학습 에러 버퍼에 반영
-        idxs, errors = pickle.loads(payload)
-        if idxs is not None:
-            print("update by learner")
-            print("  idxs: {}".format(idxs))
-            print("  error: {}".format(errors))
-            for i in range(len(errors)):
-                memory.update(idxs[i], errors[i])
+        if PRIORITIZED:
+            # 러너 학습 에러 버퍼에 반영
+            idxs, errors = pickle.loads(payload)
+            if idxs is not None:
+                print("update by learner")
+                print("  idxs: {}".format(idxs))
+                print("  error: {}".format(errors))
+                for i in range(len(errors)):
+                    memory.update(idxs[i], errors[i])
 
         # 러너가 보낸 베치와 에러
         if len(actor_infos) > 0:
@@ -73,10 +84,14 @@ while True:
             log("not enough data - memory size {}".format(len(memory)))
         else:
             # 충분하면 샘플링 후 보냄
-            batch, idxs, prios = memory.sample(BATCH_SIZE)
             binfo = BufferInfo(len(memory))
-            payload = pickle.dumps((batch, idxs, ainfos, binfo))
-            log("send batch")
+            if PRIORITIZED:
+                batch, idxs, prios = memory.sample(BATCH_SIZE)
+                payload = pickle.dumps((batch, idxs, ainfos, binfo))
+            else:
+                batch = memory.sample(BATCH_SIZE)
+                payload = pickle.dumps((batch, ainfos, binfo))
 
         # 전송
+        log("send batch")
         learner.send(payload)

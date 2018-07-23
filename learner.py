@@ -13,7 +13,7 @@ from torch import optim
 from tensorboardX import SummaryWriter
 
 from common import DQN, ENV_NAME, get_device, get_logger, calc_loss,\
-    weights_init, Experience
+    weights_init, Experience, PRIORITIZED
 from wrappers import make_env
 
 STOP_REWARD = 19.5
@@ -87,7 +87,10 @@ def main():
 
         # 버퍼에게 학습을 위한 배치를 요청
         log("request new batch {}.".format(train_cnt))
-        payload = pickle.dumps((idxs, errors))
+        if PRIORITIZED:
+            payload = pickle.dumps((idxs, errors))
+        else:
+            payload = b''
         buf_sock.send(payload)
         payload = buf_sock.recv()
 
@@ -100,8 +103,12 @@ def main():
             log("train batch.")
             train_cnt += 1
 
-            exps, idxs, ainfos, binfo = pickle.loads(payload)
-            batch = Experience(*map(np.concatenate, zip(*exps)))
+            if PRIORITIZED:
+                exps, idxs, ainfos, binfo = pickle.loads(payload)
+                batch = Experience(*map(np.concatenate, zip(*exps)))
+            else:
+                batch, ainfos, binfo = pickle.loads(payload)
+
             loss_t, errors, q_maxs = calc_loss(batch, net, tgt_net,
                                                device=device)
             optimizer.zero_grad()

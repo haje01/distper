@@ -14,8 +14,9 @@ from torch.nn.init import xavier_uniform_
 from sumtree import SumTree
 
 GAMMA = 0.99
-
 ENV_NAME = "PongNoFrameskip-v4"
+
+PRIORITIZED = False
 
 Experience = namedtuple('Experience', field_names=['state', 'action', 'reward',
                         'done', 'new_state'])
