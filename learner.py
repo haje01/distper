@@ -148,6 +148,7 @@ def main():
             if mean_reward > max_reward:
                 log("save best model")
                 torch.save(net, ENV_NAME + "-best.dat")
+                max_reward = mean_reward
 
         # 모델 발행
         publish_model(net, tgt_net, act_sock)
