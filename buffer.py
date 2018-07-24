@@ -1,7 +1,7 @@
 """리플레이 버퍼 모듈."""
 import time
 import pickle
-from collections import defaultdict
+from collections import defaultdict, deque
 
 import zmq
 import numpy as np
@@ -14,10 +14,10 @@ START_SIZE = 4000    # 원래는 50,000
 BATCH_SIZE = 64   # 전송할 배치 크기
 
 
-def average_actor_info(infos):
+def average_actor_info(ainfos):
     """액터별로 정보 평균."""
     result = {}
-    for ano, infos in infos.items():
+    for ano, infos in ainfos.items():
         infos = ActorInfo(*zip(*infos))
         tmp = ActorInfo(*np.mean(infos, axis=1))
         info = ActorInfo(tmp.episode, int(tmp.frame), tmp.reward, tmp.speed)
@@ -41,7 +41,7 @@ recv.bind("tcp://*:5558")
 learner = context.socket(zmq.REP)
 learner.bind("tcp://*:5555")
 
-actor_infos = defaultdict(list)  # 액터들이 보낸 정보
+actor_infos = defaultdict(lambda: deque(maxlen=100))  # 액터들이 보낸 정보
 
 # 반복
 while True:

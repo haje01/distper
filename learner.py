@@ -19,9 +19,9 @@ from wrappers import make_env
 STOP_REWARD = 19.5
 
 LEARNING_RATE = 1e-4
-SYNC_TARGET_FREQ = 100
+SYNC_TARGET_FREQ = 200
 SHOW_FREQ = 10
-PUBLISH_FREQ = 10
+PUBLISH_FREQ = 40
 SAVE_FREQ = 30
 
 GRADIENT_CLIP = 40
@@ -149,8 +149,6 @@ def main():
                                   float(total_q_max / train_cnt), train_cnt)
                 writer.add_scalar("buffer/replay", binfo.replay, train_cnt)
                 for ano, ainfo in ainfos.items():
-                    # writer.add_scalar("actor-{}/fps".format(ano),
-                    #                   ainfo.speed, ainfo.frame)
                     writer.add_scalar("actor/{}-reward".format(ano),
                                       ainfo.reward, ainfo.frame)
 

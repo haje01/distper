@@ -19,7 +19,7 @@ BUFFER_SIZE = 1000  # 버퍼 전이 수
 SEND_SIZE = 100     # 보낼 전이 수
 MODEL_UPDATE_FREQ = 300    # 러너의 모델 가져올 주기
 EPS_BASE = 0.4   # eps 계산용
-EPS_ALPHA = 1    # eps 계산용
+EPS_ALPHA = 3    # eps 계산용
 
 actor_id = int(os.environ.get('ACTOR_ID', '-1'))    # 액터의 ID
 assert actor_id != -1
