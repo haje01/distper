@@ -6,8 +6,8 @@ from collections import defaultdict
 import zmq
 import numpy as np
 
-from common import ExperienceBuffer, ExperiencePriorityBuffer, async_recv,\
-    ActorInfo, BufferInfo, get_logger, PRIORITIZED
+from common import ReplayBuffer, PrioReplayBuffer, async_recv, ActorInfo,\
+    BufferInfo, get_logger, PRIORITIZED
 
 BUFFER_SIZE = 40000  # 원래는 2,000,000
 START_SIZE = 4000    # 원래는 50,000
@@ -27,9 +27,9 @@ def average_actor_info(infos):
 log = get_logger()
 
 if PRIORITIZED:
-    memory = ExperiencePriorityBuffer(BUFFER_SIZE)
+    memory = PrioReplayBuffer(BUFFER_SIZE)
 else:
-    memory = ExperienceBuffer(BUFFER_SIZE)
+    memory = ReplayBuffer(BUFFER_SIZE)
 
 context = zmq.Context()
 
@@ -51,16 +51,14 @@ while True:
         st = time.time()
         if PRIORITIZED:
             actor_id, batch, prios, ainfo = pickle.loads(payload)
-            # 리플레이 버퍼에 병합
-            for prio, sample in zip(prios, batch):
-                memory._append(prio, sample)
+            memory.populate(batch, prios)
         else:
             actor_id, batch, ainfo = pickle.loads(payload)
-            # 리플레이 버퍼에 병합
             memory.merge(batch)
         actor_infos[actor_id].append(ainfo)
 
-        log("receive replay - memory size {} elapse {:.2f}".format(len(memory), time.time() - st))
+        log("receive replay - memory size {} elapse {:.2f}".
+            format(len(memory), time.time() - st))
 
     # 러너가 배치를 요청했으면 보냄
     payload = async_recv(learner)
@@ -73,8 +71,7 @@ while True:
                 print("update by learner")
                 print("  idxs: {}".format(idxs))
                 print("  error: {}".format(errors))
-                for i in range(len(errors)):
-                    memory.update(idxs[i], errors[i])
+                memory.update(idxs, errors)
 
         # 러너가 보낸 베치와 에러
         if len(actor_infos) > 0:

@@ -1,7 +1,6 @@
 """공용 상수 및 함수."""
 import sys
 import logging
-import random
 from collections import namedtuple, deque
 
 import zmq
@@ -11,12 +10,10 @@ import torch
 from torch import nn
 from torch.nn.init import xavier_uniform_
 
-from sumtree import SumTree
-
 GAMMA = 0.99
 ENV_NAME = "PongNoFrameskip-v4"
 
-PRIORITIZED = False
+PRIORITIZED = True
 
 Experience = namedtuple('Experience', field_names=['state', 'action', 'reward',
                         'done', 'new_state'])
@@ -80,7 +77,7 @@ class DQN(nn.Module):
         return self.fc(conv_out)
 
 
-class ExperienceBuffer:
+class ReplayBuffer:
     """경험 버퍼."""
 
     def __init__(self, capacity):
@@ -113,60 +110,48 @@ class ExperienceBuffer:
         self.buffer.clear()
 
 
-class ExperiencePriorityBuffer:
-    """경험 우선순위 버퍼."""
+class PrioReplayBuffer:
+    """우선 순위 경험 버퍼."""
 
-    e = 0.01
-    a = 0.6
-    beta = 0.4
-    beta_increment_per_sampling = 0.001
-
-    def __init__(self, capacity):
+    def __init__(self, buf_size, prob_alpha=0.6):
         """초기화."""
-        self.tree = SumTree(capacity)
+        self.prob_alpha = prob_alpha
+        self.capacity = buf_size
+        self.pos = 0
+        self.buffer = []
+        self.priorities = np.zeros((buf_size, ), dtype=np.float32)
 
     def __len__(self):
         """길이 연산자."""
-        return self.tree.n_entries
+        return len(self.buffer)
 
-    def get_priority(self, error):
-        """우선도 계산."""
-        return (error + self.e) ** self.a
+    def populate(self, batch, prios):
+        """채우기."""
+        for sample, prio in zip(batch, prios):
+            if len(self.buffer) < self.capacity:
+                self.buffer.append(sample)
+            else:
+                self.buffer[self.pos] = sample
+            self.priorities[self.pos] = prio
+            self.pos = (self.pos + 1) % self.capacity
 
-    def append(self, error, sample):
-        """에러로 경험 추가."""
-        p = self.get_priority(error)
-        self.tree.add(p, sample)
+    def sample(self, batch_size, beta=0.4):
+        """샘플링."""
+        if len(self.buffer) == self.capacity:
+            prios = self.priorities
+        else:
+            prios = self.priorities[:self.pos]
+        probs = prios ** self.prob_alpha
 
-    def _append(self, prio, sample):
-        """우선 순위로 경험 추가."""
-        self.tree.add(prio, sample)
+        probs /= probs.sum()
+        indices = np.random.choice(len(self.buffer), batch_size, p=probs)
+        samples = [self.buffer[idx] for idx in indices]
+        return samples, indices, prios
 
-    def sample(self, n):
-        """우선 샘플링."""
-        batch = []
-        idxs = []
-        segment = self.tree.total() / n
-        priorities = []
-
-        self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])
-
-        for i in range(n):
-            a = segment * i
-            b = segment * (i + 1)
-
-            s = random.uniform(a, b)
-            (idx, p, data) = self.tree.get(s)
-            idxs.append(idx)
-            priorities.append(p)
-            batch.append(data)
-
-        return batch, idxs, priorities
-
-    def update(self, idx, error):
-        """우선 트리 갱신."""
-        p = self.get_priority(error)
-        self.tree.update(idx, p)
+    def update(self, batch_indices, batch_priorities):
+        """우선도 갱신."""
+        for idx, prio in zip(batch_indices, batch_priorities):
+            self.priorities[idx] = prio
 
 
 def get_size(obj, seen=None):

@@ -9,9 +9,9 @@ import zmq
 import numpy as np
 import torch
 
-from common import ExperienceBuffer, ExperiencePriorityBuffer, ENV_NAME,\
-    ActorInfo, calc_loss, get_logger, DQN, async_recv, weights_init,\
-    array_experience, PRIORITIZED, Experience, float2byte, byte2float
+from common import ReplayBuffer, PrioReplayBuffer, ENV_NAME, ActorInfo,\
+    calc_loss, get_logger, DQN, async_recv, weights_init, array_experience,\
+    PRIORITIZED, Experience, float2byte, byte2float
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
@@ -19,7 +19,6 @@ BUFFER_SIZE = 1000  # 버퍼 전이 수
 SEND_SIZE = 100     # 보낼 전이 수
 MODEL_UPDATE_FREQ = 300    # 러너의 모델 가져올 주기
 EPS_BASE = 0.4   # eps 계산용
-# EPS_ALPHA = 7    # eps 계산용
 EPS_ALPHA = 1    # eps 계산용
 
 actor_id = int(os.environ.get('ACTOR_ID', '-1'))    # 액터의 ID
@@ -122,7 +121,7 @@ class Agent:
         if self.prioritized:
             loss_t, _, _ = calc_loss(sample, net, tgt_net)
             error = float(loss_t)
-            self.memory.append(error, sample)
+            self.memory.populate([sample], [error])
         else:
             self.memory.append(sample)
 
@@ -174,9 +173,9 @@ def main():
     tgt_net.load_state_dict(net.state_dict())
 
     if PRIORITIZED:
-        memory = ExperiencePriorityBuffer(BUFFER_SIZE)
+        memory = PrioReplayBuffer(BUFFER_SIZE)
     else:
-        memory = ExperienceBuffer(BUFFER_SIZE)
+        memory = ReplayBuffer(BUFFER_SIZE)
 
     # 고정 eps로 에이전트 생성
     epsilon = EPS_BASE ** (1 + actor_id / (num_actor - 1) * EPS_ALPHA)
