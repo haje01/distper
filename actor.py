@@ -222,8 +222,7 @@ def main():
             p_time = time.time()
             p_frame = frame_idx
 
-        # 모델을 받을 때가 되었으면 받기
-        if frame_idx % MODEL_UPDATE_FREQ == 0:
+            # 새로운 모델 받기
             net, tgt_net = receive_model(lrn_sock, net, tgt_net, False)
 
 

@@ -19,7 +19,7 @@ from wrappers import make_env
 STOP_REWARD = 19.5
 
 LEARNING_RATE = 1e-5
-SYNC_TARGET_FREQ = 10
+SYNC_TARGET_FREQ = 120
 
 GRADIENT_CLIP = 40
 
@@ -146,7 +146,7 @@ def main():
             # 최고 리워드 모델 저장
             mean_reward = np.mean([ainfo.reward for ainfo in ainfos.values()])
             if mean_reward > max_reward:
-                log("save best model")
+                log("save best model - reward {:.2f}".format(mean_reward))
                 torch.save(net, ENV_NAME + "-best.dat")
                 max_reward = mean_reward
 
@@ -156,7 +156,7 @@ def main():
         if p_time is not None:
             elapsed = time.time() - p_time
             fps = 1.0 / elapsed
-            log("train elapsed {:.2f} fps {:.2f}".format(elapsed, fps))
+            log("train elapsed {:.2f} speed {:.2f} f/s".format(elapsed, fps))
 
         p_time = time.time()
 
