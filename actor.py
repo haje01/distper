@@ -10,8 +10,8 @@ import numpy as np
 import torch
 
 from common import ExperienceBuffer, ExperiencePriorityBuffer, ENV_NAME,\
-    ActorInfo, calc_loss, float2byte, byte2float, get_logger, DQN, async_recv,\
-    weights_init, array_experience, PRIORITIZED, Experience
+    ActorInfo, calc_loss, get_logger, DQN, async_recv, weights_init,\
+    array_experience, PRIORITIZED, Experience, float2byte, byte2float
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기

@@ -18,8 +18,11 @@ from wrappers import make_env
 
 STOP_REWARD = 19.5
 
-LEARNING_RATE = 1e-5
-SYNC_TARGET_FREQ = 120
+LEARNING_RATE = 1e-4
+SYNC_TARGET_FREQ = 100
+SHOW_FREQ = 10
+PUBLISH_FREQ = 10
+SAVE_FREQ = 30
 
 GRADIENT_CLIP = 40
 
@@ -42,11 +45,12 @@ def init_zmq():
 
 def publish_model(net, tgt_net, act_sock):
     """가중치를 발행."""
-    log("publish model.")
+    st = time.time()
     bio = BytesIO()
     torch.save(net, bio)
     torch.save(tgt_net, bio)
     act_sock.send(bio.getvalue())
+    log("publish model elapsed {:.2f}".format(time.time() - st))
     # cpu_model_state = {}
     # for key, val in net.state_dict().items():
     #     cpu_model_state[key] = val.cpu()
@@ -87,12 +91,14 @@ def main():
 
         # 버퍼에게 학습을 위한 배치를 요청
         log("request new batch {}.".format(train_cnt))
+        st = time.time()
         if PRIORITIZED:
             payload = pickle.dumps((idxs, errors))
         else:
             payload = b''
         buf_sock.send(payload)
         payload = buf_sock.recv()
+        log("receive batch elapse {:.2f}".format(time.time() - st))
 
         if payload == b'not enough':
             # 아직 배치가 부족
@@ -101,6 +107,7 @@ def main():
         else:
             # 배치 학습
             log("train batch.")
+            st = time.time()
             train_cnt += 1
 
             if PRIORITIZED:
@@ -108,14 +115,17 @@ def main():
                 batch = Experience(*map(np.concatenate, zip(*exps)))
             else:
                 batch, ainfos, binfo = pickle.loads(payload)
+                log("train - pickle elapse {:.2f}".format(time.time() - st)); st = time.time()
 
             loss_t, errors, q_maxs = calc_loss(batch, net, tgt_net,
                                                device=device)
+            log("train - calc_loss elapse {:.2f}".format(time.time() - st)); st = time.time()
             optimizer.zero_grad()
             loss_t.backward()
             # scheduler.step(float(loss_t))
             total_q_max += q_maxs.mean()
             optimizer.step()
+            log("train - backprop elapse {:.2f}".format(time.time() - st)); st = time.time()
 
             # gradient clipping
             # for param in net.parameters():
@@ -123,10 +133,11 @@ def main():
 
             # 타겟 네트워크 갱신
             if train_cnt % SYNC_TARGET_FREQ == 0:
-                log("sync target network - speed {} train / sec".format(fps))
+                log("sync target network")
                 log(net.state_dict()['conv.0.weight'][0][0])
                 tgt_net.load_state_dict(net.state_dict())
 
+            if train_cnt % SHOW_FREQ == 0:
                 # 보드 게시
                 for name, param in net.named_parameters():
                     writer.add_histogram("learner/" + name,
@@ -145,13 +156,14 @@ def main():
 
             # 최고 리워드 모델 저장
             mean_reward = np.mean([ainfo.reward for ainfo in ainfos.values()])
-            if mean_reward > max_reward:
+            if mean_reward > max_reward and train_cnt % SAVE_FREQ == 0:
                 log("save best model - reward {:.2f}".format(mean_reward))
                 torch.save(net, ENV_NAME + "-best.dat")
                 max_reward = mean_reward
 
         # 모델 발행
-        publish_model(net, tgt_net, act_sock)
+        if train_cnt % PUBLISH_FREQ == 0:
+            publish_model(net, tgt_net, act_sock)
 
         if p_time is not None:
             elapsed = time.time() - p_time

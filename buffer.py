@@ -1,4 +1,5 @@
 """리플레이 버퍼 모듈."""
+import time
 import pickle
 from collections import defaultdict
 
@@ -8,9 +9,9 @@ import numpy as np
 from common import ExperienceBuffer, ExperiencePriorityBuffer, async_recv,\
     ActorInfo, BufferInfo, get_logger, PRIORITIZED
 
-BUFFER_SIZE = 100000  # 원래는 2,000,000
-START_SIZE = 10000    # 원래는 50,000
-BATCH_SIZE = 256   # 전송할 배치 크기
+BUFFER_SIZE = 40000  # 원래는 2,000,000
+START_SIZE = 4000    # 원래는 50,000
+BATCH_SIZE = 64   # 전송할 배치 크기
 
 
 def average_actor_info(infos):
@@ -47,6 +48,7 @@ while True:
     # 액터에게서 리플레이 정보 받음
     payload = async_recv(recv)
     if payload is not None:
+        st = time.time()
         if PRIORITIZED:
             actor_id, batch, prios, ainfo = pickle.loads(payload)
             # 리플레이 버퍼에 병합
@@ -58,11 +60,12 @@ while True:
             memory.merge(batch)
         actor_infos[actor_id].append(ainfo)
 
-        log("receive replay - memory size {}".format(len(memory)))
+        log("receive replay - memory size {} elapse {:.2f}".format(len(memory), time.time() - st))
 
     # 러너가 배치를 요청했으면 보냄
     payload = async_recv(learner)
     if payload is not None:
+        st = time.time()
         if PRIORITIZED:
             # 러너 학습 에러 버퍼에 반영
             idxs, errors = pickle.loads(payload)
@@ -93,5 +96,5 @@ while True:
                 payload = pickle.dumps((batch, ainfos, binfo))
 
         # 전송
-        log("send batch")
         learner.send(payload)
+        log("send batch elapse {:.2f}".format(time.time() - st))

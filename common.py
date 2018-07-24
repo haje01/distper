@@ -211,7 +211,6 @@ def get_logger():
 def calc_loss(batch, net, tgt_net, device='cpu'):
     """손실 계산."""
     states, actions, rewards, dones, next_states = batch
-
     states = byte2float(states)
     next_states = byte2float(next_states)
 
