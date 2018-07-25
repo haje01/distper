@@ -16,7 +16,7 @@ from common import DQN, ENV_NAME, get_device, get_logger, calc_loss,\
     weights_init, Experience, PRIORITIZED
 from wrappers import make_env
 
-STOP_REWARD = 19.5
+STOP_REWARD = 19
 
 LEARNING_RATE = 1e-4 * 0.1
 SYNC_TARGET_FREQ = 200
