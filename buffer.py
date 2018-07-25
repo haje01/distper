@@ -9,9 +9,9 @@ import numpy as np
 from common import ReplayBuffer, PrioReplayBuffer, async_recv, ActorInfo,\
     BufferInfo, get_logger, PRIORITIZED
 
-BUFFER_SIZE = 20000  # 원래는 2,000,000
-START_SIZE = 1000    # 원래는 50,000
-BATCH_SIZE = 128     # 원래는 512
+BUFFER_SIZE = 40000  # 원래는 2,000,000
+START_SIZE = 2000    # 원래는 50,000
+BATCH_SIZE = 256     # 원래는 512
 
 
 def average_actor_info(ainfos):
@@ -41,7 +41,7 @@ recv.bind("tcp://*:5558")
 learner = context.socket(zmq.REP)
 learner.bind("tcp://*:5555")
 
-actor_infos = defaultdict(lambda: deque(maxlen=10))  # 액터들이 보낸 정보
+actor_infos = defaultdict(lambda: deque(maxlen=300))  # 액터들이 보낸 정보
 
 # 반복
 while True:

@@ -18,10 +18,10 @@ from wrappers import make_env
 
 STOP_REWARD = 19.5
 
-LEARNING_RATE = 1e-4 * 0.1
-SYNC_TARGET_FREQ = 200
+LEARNING_RATE = 1e-3
+SYNC_TARGET_FREQ = 200  # Batch 크기에 맞게 (1분 정도)
 SHOW_FREQ = 10
-PUBLISH_FREQ = 40
+PUBLISH_FREQ = 40  # Batch 크기에 맞게 (10초 정도)
 SAVE_FREQ = 30
 
 GRADIENT_CLIP = 40
