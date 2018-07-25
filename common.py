@@ -14,7 +14,7 @@ GAMMA = 0.99
 ENV_NAME = "PongNoFrameskip-v4"
 
 PRIORITIZED = True
-PRIO_ALPHA = 0.4
+PRIO_ALPHA = 0.6
 
 Experience = namedtuple('Experience', field_names=['state', 'action', 'reward',
                         'done', 'new_state'])
