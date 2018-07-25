@@ -9,9 +9,9 @@ import numpy as np
 from common import ReplayBuffer, PrioReplayBuffer, async_recv, ActorInfo,\
     BufferInfo, get_logger, PRIORITIZED
 
-BUFFER_SIZE = 40000  # 원래는 2,000,000
-START_SIZE = 4000    # 원래는 50,000
-BATCH_SIZE = 64   # 전송할 배치 크기
+BUFFER_SIZE = 20000  # 원래는 2,000,000
+START_SIZE = 1000    # 원래는 50,000
+BATCH_SIZE = 128     # 원래는 512
 
 
 def average_actor_info(ainfos):
@@ -41,7 +41,7 @@ recv.bind("tcp://*:5558")
 learner = context.socket(zmq.REP)
 learner.bind("tcp://*:5555")
 
-actor_infos = defaultdict(lambda: deque(maxlen=100))  # 액터들이 보낸 정보
+actor_infos = defaultdict(lambda: deque(maxlen=10))  # 액터들이 보낸 정보
 
 # 반복
 while True:
@@ -68,9 +68,8 @@ while True:
             # 러너 학습 에러 버퍼에 반영
             idxs, errors = pickle.loads(payload)
             if idxs is not None:
-                print("update by learner")
-                print("  idxs: {}".format(idxs))
-                print("  error: {}".format(errors))
+                # print("update by learner")
+                # print("  idx_err: {}".format(dict(zip(idxs, errors))))
                 memory.update(idxs, errors)
 
         # 러너가 보낸 베치와 에러
@@ -88,6 +87,8 @@ while True:
             if PRIORITIZED:
                 batch, idxs, prios = memory.sample(BATCH_SIZE)
                 payload = pickle.dumps((batch, idxs, ainfos, binfo))
+                # print("send to learner")
+                # print("  idx_prio: {}".format(dict(zip(idxs, prios))))
             else:
                 batch = memory.sample(BATCH_SIZE)
                 payload = pickle.dumps((batch, ainfos, binfo))

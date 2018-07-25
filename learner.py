@@ -18,7 +18,7 @@ from wrappers import make_env
 
 STOP_REWARD = 19.5
 
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-4 * 0.1
 SYNC_TARGET_FREQ = 200
 SHOW_FREQ = 10
 PUBLISH_FREQ = 40
@@ -83,7 +83,7 @@ def main():
     #                             momentum=0.9)
     # scheduler = ReduceLROnPlateau(optimizer, 'min')
 
-    fps = total_q_max = 0.0
+    fps = q_max = prioerr = 0.0
     p_time = idxs = errors = None
     train_cnt = 1
     max_reward = -1000
@@ -93,7 +93,10 @@ def main():
         log("request new batch {}.".format(train_cnt))
         st = time.time()
         if PRIORITIZED:
+            # 배치의 에러를 보냄
             payload = pickle.dumps((idxs, errors))
+            if errors is not None:
+                priority = np.mean(errors)
         else:
             payload = b''
         buf_sock.send(payload)
@@ -123,7 +126,7 @@ def main():
             optimizer.zero_grad()
             loss_t.backward()
             # scheduler.step(float(loss_t))
-            total_q_max += q_maxs.mean()
+            q_max = q_maxs.mean()
             optimizer.step()
             log("train - backprop elapse {:.2f}".format(time.time() - st)); st = time.time()
 
@@ -139,14 +142,14 @@ def main():
 
             if train_cnt % SHOW_FREQ == 0:
                 # 보드 게시
-                for name, param in net.named_parameters():
-                    writer.add_histogram("learner/" + name,
-                                         param.clone().cpu().data.numpy(),
-                                         train_cnt)
+                # for name, param in net.named_parameters():
+                #    writer.add_histogram("learner/" + name,
+                #                         param.clone().cpu().data.numpy(),
+                #                         train_cnt)
                 writer.add_scalar("learner/loss", float(loss_t), train_cnt)
-                # writer.add_scalar("learner/fps", fps, train_cnt)
-                writer.add_scalar("learner/Qmax",
-                                  float(total_q_max / train_cnt), train_cnt)
+                writer.add_scalar("learner/Qmax", q_max, train_cnt)
+                if PRIORITIZED:
+                    writer.add_scalar("learner/priority", priority, train_cnt)
                 writer.add_scalar("buffer/replay", binfo.replay, train_cnt)
                 for ano, ainfo in ainfos.items():
                     writer.add_scalar("actor/{}-reward".format(ano),

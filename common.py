@@ -14,6 +14,7 @@ GAMMA = 0.99
 ENV_NAME = "PongNoFrameskip-v4"
 
 PRIORITIZED = True
+PRIO_ALPHA = 0.4
 
 Experience = namedtuple('Experience', field_names=['state', 'action', 'reward',
                         'done', 'new_state'])
@@ -113,7 +114,7 @@ class ReplayBuffer:
 class PrioReplayBuffer:
     """우선 순위 경험 버퍼."""
 
-    def __init__(self, buf_size, prob_alpha=0.6):
+    def __init__(self, buf_size, prob_alpha=PRIO_ALPHA):
         """초기화."""
         self.prob_alpha = prob_alpha
         self.capacity = buf_size

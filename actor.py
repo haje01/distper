@@ -15,8 +15,9 @@ from common import ReplayBuffer, PrioReplayBuffer, ENV_NAME, ActorInfo,\
 from wrappers import make_env
 
 SHOW_FREQ = 100   # 로그 출력 주기
-BUFFER_SIZE = 1000  # 버퍼 전이 수
-SEND_SIZE = 100     # 보낼 전이 수
+PRIO_BUF_SIZE = 1000  # 우선 버퍼 전이 수
+SEND_SIZE = 100       # 보낼 전이 수
+SEND_FREQ = 100       # 보낼 빈도
 MODEL_UPDATE_FREQ = 300    # 러너의 모델 가져올 주기
 EPS_BASE = 0.4   # eps 계산용
 EPS_ALPHA = 3    # eps 계산용
@@ -149,7 +150,7 @@ def receive_model(lrn_sock, net, tgt_net, block):
         payload = async_recv(lrn_sock)
 
     if payload is None:
-        log("no new model. use old one.")
+        # log("no new model. use old one.")
         return net, tgt_net
 
     bio = BytesIO(payload)
@@ -173,9 +174,9 @@ def main():
     tgt_net.load_state_dict(net.state_dict())
 
     if PRIORITIZED:
-        memory = PrioReplayBuffer(BUFFER_SIZE)
+        memory = PrioReplayBuffer(PRIO_BUF_SIZE)
     else:
-        memory = ReplayBuffer(BUFFER_SIZE)
+        memory = ReplayBuffer(SEND_SIZE)
 
     # 고정 eps로 에이전트 생성
     epsilon = EPS_BASE ** (1 + actor_id / (num_actor - 1) * EPS_ALPHA)
@@ -205,8 +206,8 @@ def main():
             episode += 1
             p_reward = reward
 
-        # 버퍼가 보낼 크기 이상으로 찼으면
-        if len(agent.memory) >= SEND_SIZE:
+        # 보내기
+        if frame_idx % SEND_FREQ == 0:
             # 학습관련 정보
             if p_time is None:
                 speed = 0.0
