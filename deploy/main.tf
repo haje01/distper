@@ -73,7 +73,7 @@ resource "aws_security_group" "distper" {
 # task node
 resource "aws_instance" "task" {
     ami = "ami-b9e357d7"          # Deep Learning AMI (Ubuntu) Version 11.0
-    instance_type = "t2.micro"    # 4 Cores, 16 GiB RAM
+    instance_type = "m5.xlarge"    # 4 Cores, 16 GiB RAM
     key_name = "${var.aws_key_name}"
     vpc_security_group_ids = ["${aws_security_group.distper.id}"]
     subnet_id = "${aws_default_subnet.default.id}"
@@ -121,8 +121,7 @@ EOF
 # master node
 resource "aws_instance" "master" {
     ami = "ami-b9e357d7"          # Deep Learning AMI (Ubuntu) Version 11.0
-    # instance_type = "p2.xlarge"   # GPU, 4 Cores, 61 GiB RAM
-    instance_type = "t2.micro"    # GPU, 4 Cores, 61 GiB RAM
+    instance_type = "p2.xlarge"   # GPU, 4 Cores, 61 GiB RAM
     key_name = "${var.aws_key_name}"
     vpc_security_group_ids = ["${aws_security_group.distper.id}"]
     subnet_id = "${aws_default_subnet.default.id}"

@@ -1,6 +1,5 @@
 """러너 모듈."""
 
-import sys
 import time
 import pickle
 from io import BytesIO
@@ -72,13 +71,9 @@ def main():
 
     # ZMQ 초기화
     context, act_sock, buf_sock = init_zmq()
-    if sys.argv[-1] != 'nowait':
-        # 입력을 기다린 후 시작
-        log("Press Enter when the actors are ready: ")
-        input()
-    else:
-        # 잠시 워커 접속을 기다림
-        time.sleep(20)
+    # 입력을 기다린 후 시작
+    log("Press Enter when the actors are ready: ")
+    input()
 
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")

@@ -110,3 +110,4 @@ terraform.tfvars
 *.lock.info
 
 runs/
+*.dat
