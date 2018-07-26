@@ -19,7 +19,7 @@ from wrappers import make_env
 
 STOP_REWARD = 19
 
-LEARNING_RATE = 0.00025 # 1e-4
+LEARNING_RATE = 0.00025  # 1e-4
 SYNC_TARGET_FREQ = 200  # Batch 크기에 맞게 (1분 정도)
 SHOW_FREQ = 10
 PUBLISH_FREQ = 40  # Batch 크기에 맞게 (10초 정도)
@@ -73,8 +73,13 @@ def main():
     # ZMQ 초기화
     context, act_sock, buf_sock = init_zmq()
     if sys.argv[-1] != 'nowait':
+        # 입력을 기다린 후 시작
         log("Press Enter when the actors are ready: ")
         input()
+    else:
+        # 잠시 워커 접속을 기다림
+        time.sleep(20)
+
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")
     publish_model(net, tgt_net, act_sock)
@@ -84,7 +89,7 @@ def main():
     #                             momentum=0.9)
     # scheduler = ReduceLROnPlateau(optimizer, 'min')
 
-    fps = q_max = prioerr = 0.0
+    fps = q_max = 0.0
     p_time = idxs = errors = None
     train_cnt = 1
     max_reward = -1000
@@ -110,7 +115,6 @@ def main():
             time.sleep(1)
         else:
             # 배치 학습
-            log("train batch.")
             st = time.time()
             train_cnt += 1
 
@@ -119,17 +123,14 @@ def main():
                 batch = Experience(*map(np.concatenate, zip(*exps)))
             else:
                 batch, ainfos, binfo = pickle.loads(payload)
-                log("train - pickle elapse {:.2f}".format(time.time() - st)); st = time.time()
 
             loss_t, errors, q_maxs = calc_loss(batch, net, tgt_net,
                                                device=device)
-            log("train - calc_loss elapse {:.2f}".format(time.time() - st)); st = time.time()
             optimizer.zero_grad()
             loss_t.backward()
             # scheduler.step(float(loss_t))
             q_max = q_maxs.mean()
             optimizer.step()
-            log("train - backprop elapse {:.2f}".format(time.time() - st)); st = time.time()
 
             # gradient clipping
             for param in net.parameters():
