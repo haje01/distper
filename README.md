@@ -6,7 +6,7 @@
 환경:
 - Python (v3.7)
 - PyTorch (v0.4)
-- AWS (p2)
+- AWS (p2.xlarge)
 - Terraform (v0.11)
 
 
