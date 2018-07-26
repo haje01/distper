@@ -1,5 +1,6 @@
 """러너 모듈."""
 
+import sys
 import time
 import pickle
 from io import BytesIO
@@ -18,12 +19,11 @@ from wrappers import make_env
 
 STOP_REWARD = 19.5
 
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 0.00025 # 1e-4
 SYNC_TARGET_FREQ = 200  # Batch 크기에 맞게 (1분 정도)
 SHOW_FREQ = 10
 PUBLISH_FREQ = 40  # Batch 크기에 맞게 (10초 정도)
 SAVE_FREQ = 30
-
 GRADIENT_CLIP = 40
 
 log = get_logger()
@@ -72,8 +72,9 @@ def main():
 
     # ZMQ 초기화
     context, act_sock, buf_sock = init_zmq()
-    log("Press Enter when the actors are ready: ")
-    input()
+    if sys.argv[-1] != 'nowait':
+        log("Press Enter when the actors are ready: ")
+        input()
     # 기본 모델을 발행해 액터 시작
     log("sending parameters to actors…")
     publish_model(net, tgt_net, act_sock)
@@ -131,8 +132,8 @@ def main():
             log("train - backprop elapse {:.2f}".format(time.time() - st)); st = time.time()
 
             # gradient clipping
-            # for param in net.parameters():
-            #     param.grad.data.clamp_(-GRADIENT_CLIP, GRADIENT_CLIP)
+            for param in net.parameters():
+                param.grad.data.clamp_(-GRADIENT_CLIP, GRADIENT_CLIP)
 
             # 타겟 네트워크 갱신
             if train_cnt % SYNC_TARGET_FREQ == 0:
