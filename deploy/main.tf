@@ -2,11 +2,24 @@ variable "access_key" {}
 variable "secret_key" {}
 variable "proj_owner" {}
 variable "aws_key_name" {}
-variable "region" {
-    default = "ap-northeast-2"
-}
+variable "region" {}
+variable "availability_zone" {}
 variable "ssh_cidr" {}
 variable "ssh_key_file" {}
+variable "num_task_node" {}
+variable "actor_per_node" {}
+
+output "subnet_cidr" {
+    value = "${aws_default_subnet.default.cidr_block}"
+}
+
+output "master_ip" {
+    value = "${aws_instance.master.public_ip}"
+}
+
+output "task_ips" {
+    value = ["${aws_instance.task.*.public_ip}"]
+}
 
 
 provider "aws" {
@@ -15,8 +28,9 @@ provider "aws" {
   region = "${var.region}"
 }
 
+
 resource "aws_default_subnet" "default" {
-    availability_zone = "${var.region}"
+    availability_zone = "${var.availability_zone}"
 
     tags {
         Name = "Default subnet"
@@ -63,6 +77,7 @@ resource "aws_instance" "task" {
     key_name = "${var.aws_key_name}"
     vpc_security_group_ids = ["${aws_security_group.distper.id}"]
     subnet_id = "${aws_default_subnet.default.id}"
+    count = "${var.num_task_node}"
 
     provisioner "remote-exec" {
         connection {
@@ -72,6 +87,7 @@ resource "aws_instance" "task" {
         }
         inline = [
             <<EOF
+sudo locale-gen ko_KR.UTF-8
 /home/ubuntu/anaconda3/bin/conda install -n pytorch_p36 -y opencv
 /home/ubuntu/anaconda3/bin/conda install -n pytorch_p36 -y libprotobuf protobuf
 git clone https://github.com/openai/gym
@@ -80,6 +96,15 @@ cd gym
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install gym[classic_control,atari]
 cd
 git clone https://github.com/haje01/distper.git
+export MASTER_IP=${aws_instance.master.private_ip}
+export TNODE_ID=${count.index}
+export NUM_ACTOR=$((${var.num_task_node} * 4))
+idx=0
+while [ $idx -lt ${var.actor_per_node} ]
+do
+  screen -S "actor-$(($TNODE_ID*4+$idx))" -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; ACTOR_ID=$(($TNODE_ID*4+$idx)) python actor.py; exec bash"
+  idx=`expr $idx + 1`
+done
 EOF
         ]
     }
@@ -107,6 +132,7 @@ resource "aws_instance" "master" {
         }
         inline = [
             <<EOF
+sudo locale-gen ko_KR.UTF-8
 /home/ubuntu/anaconda3/bin/conda install -n pytorch_p36 -y scikit-image tensorflow tensorboard opencv
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install tensorboardX
 /home/ubuntu/anaconda3/bin/conda install -n pytorch_p36 -y libprotobuf protobuf
@@ -116,7 +142,8 @@ cd gym
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install gym[classic_control,atari]
 cd
 git clone https://github.com/haje01/distper.git
-export MASTER_IP=${aws_instance.master.ip}
+screen -S learner -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python learner.py nowait; exec bash"
+screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python buffer.py; exec bash"
 EOF
         ]
     }
