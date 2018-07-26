@@ -100,11 +100,13 @@ export MASTER_IP=${aws_instance.master.private_ip}
 export TNODE_ID=${count.index}
 export NUM_ACTOR=$((${var.num_task_node} * 4))
 idx=0
+sleep 3
 while [ $idx -lt ${var.actor_per_node} ]
 do
   screen -S "actor-$(($TNODE_ID*4+$idx))" -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; ACTOR_ID=$(($TNODE_ID*4+$idx)) python actor.py; exec bash"
   idx=`expr $idx + 1`
 done
+sleep 3
 EOF
         ]
     }
@@ -142,8 +144,10 @@ cd gym
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install gym[classic_control,atari]
 cd
 git clone https://github.com/haje01/distper.git
+sleep 3
 screen -S learner -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python learner.py nowait; exec bash"
 screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python buffer.py; exec bash"
+sleep 3
 EOF
         ]
     }

@@ -106,3 +106,4 @@ venv.bak/
 .terraform/
 terraform.tfvars
 *.backup
+*.tfstate

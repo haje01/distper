@@ -26,6 +26,8 @@ actor_id = int(os.environ.get('ACTOR_ID', '-1'))    # 액터의 ID
 assert actor_id != -1
 num_actor = int(os.environ.get('NUM_ACTOR', '-1'))  # 전체 액터 수
 assert num_actor != -1
+master_ip = os.environ.get('MASTER_IP')  # 마스터 IP
+assert master_ip is not None
 
 log = get_logger()
 
@@ -38,11 +40,11 @@ def init_zmq():
     lrn_sock = context.socket(zmq.SUB)
     lrn_sock.setsockopt_string(zmq.SUBSCRIBE, '')
     lrn_sock.setsockopt(zmq.CONFLATE, 1)
-    lrn_sock.connect("tcp://localhost:5557")
+    lrn_sock.connect("tcp://{}:5557".format(master_ip))
 
     # 버퍼로 보낼 소켓
     buf_sock = context.socket(zmq.PUSH)
-    buf_sock.connect("tcp://localhost:5558")
+    buf_sock.connect("tcp://{}:5558".format(master_ip))
     return context, lrn_sock, buf_sock
 
 
