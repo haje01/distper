@@ -1,5 +1,5 @@
 # distper
-Distributed Priortized Experience Replay (Ape-X) 구현
+분산 강화학습 논문 'Distributed Priortized Experience Replay (Ape-X)'' 구현
 
 논문: https://arxiv.org/abs/1803.00933
 
