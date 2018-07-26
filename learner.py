@@ -18,7 +18,7 @@ from wrappers import make_env
 
 STOP_REWARD = 19
 
-LEARNING_RATE = 0.00025  # 1e-4
+LEARNING_RATE = 0.0001  # 1e-4
 SYNC_TARGET_FREQ = 200  # Batch 크기에 맞게 (1분 정도)
 SHOW_FREQ = 10
 PUBLISH_FREQ = 40  # Batch 크기에 맞게 (10초 정도)

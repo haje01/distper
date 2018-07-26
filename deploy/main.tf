@@ -42,11 +42,20 @@ resource "aws_security_group" "distper" {
     name = "distper-sg"
     description = "Security group for DistPER."
 
+    # for learner & buffer
     ingress {
         from_port = 5557
         to_port = 5558
         protocol = "tcp"
         cidr_blocks = ["${aws_default_subnet.default.cidr_block}"]
+    }
+
+    # for tensorboard
+    ingress {
+        from_port = 6006
+        to_port = 6006
+        protocol = "tcp"
+        cidr_blocks = ["${var.ssh_cidr}"]
     }
 
     # for ssh
@@ -74,8 +83,7 @@ resource "aws_security_group" "distper" {
 # master node
 resource "aws_instance" "master" {
     ami = "ami-b9e357d7"          # Deep Learning AMI (Ubuntu) Version 11.0
-    # instance_type = "p2.xlarge"   # GPU, 4 Cores, 61 GiB RAM
-    instance_type = "m4.large"
+    instance_type = "p2.xlarge"   # GPU, 4 Cores, 61 GiB RAM
     key_name = "${var.aws_key_name}"
     vpc_security_group_ids = ["${aws_security_group.distper.id}"]
     subnet_id = "${aws_default_subnet.default.id}"
@@ -100,6 +108,7 @@ cd
 git clone https://github.com/haje01/distper.git
 screen -S learner -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python learner.py nowait; exec bash"
 screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python buffer.py; exec bash"
+screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; tensorboard --logdir=runs; exec bash"
 sleep 3
 EOF
         ]
@@ -115,8 +124,7 @@ EOF
 # task node
 resource "aws_instance" "task" {
     ami = "ami-b9e357d7"          # Deep Learning AMI (Ubuntu) Version 11.0
-    # instance_type = "m5.xlarge"    # 4 Cores, 16 GiB RAM
-    instance_type = "m4.large"
+    instance_type = "m5.xlarge"
     key_name = "${var.aws_key_name}"
     vpc_security_group_ids = ["${aws_security_group.distper.id}"]
     subnet_id = "${aws_default_subnet.default.id}"
