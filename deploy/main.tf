@@ -108,7 +108,7 @@ cd
 git clone https://github.com/haje01/distper.git
 screen -S learner -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python learner.py nowait; exec bash"
 screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python buffer.py; exec bash"
-screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; tensorboard --logdir=runs; exec bash"
+screen -S board -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; tensorboard --logdir=runs; exec bash"
 sleep 3
 EOF
         ]
