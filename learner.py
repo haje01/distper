@@ -17,8 +17,7 @@ from common import DQN, ENV_NAME, get_device, get_logger, calc_loss,\
 from wrappers import make_env
 
 STOP_REWARD = 500
-
-LEARNING_RATE = 0.00025
+LEARNING_RATE = 0.00025 / 4
 SYNC_TARGET_FREQ = 600  # Batch 크기에 맞게 (2분 정도)
 SHOW_FREQ = 10
 PUBLISH_FREQ = 40  # Batch 크기에 맞게 (10초 정도)
