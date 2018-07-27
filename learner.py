@@ -153,11 +153,11 @@ def main():
                                       ainfo.reward, ainfo.frame)
 
             # 최고 리워드 모델 저장
-            mean_reward = np.mean([ainfo.reward for ainfo in ainfos.values()])
-            if mean_reward > max_reward and train_cnt % SAVE_FREQ == 0:
-                log("save best model - reward {:.2f}".format(mean_reward))
+            _max_reward = np.max([ainfo.reward for ainfo in ainfos.values()])
+            if _max_reward > max_reward and train_cnt % SAVE_FREQ == 0:
+                log("save best model - reward {:.2f}".format(_max_reward))
                 torch.save(net, ENV_NAME + "-best.dat")
-                max_reward = mean_reward
+                max_reward = _max_reward
 
         # 모델 발행
         if train_cnt % PUBLISH_FREQ == 0:

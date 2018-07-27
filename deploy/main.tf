@@ -157,7 +157,6 @@ do
   screen -S "actor-$(($TNODE_ID*4+$idx))" -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; ACTOR_ID=$(($TNODE_ID*4+$idx)) python actor.py; exec bash"
   idx=`expr $idx + 1`
 done
-echo "MASTER_IP=$MASTER_IP; TNODE_ID=$TNODE_ID; NUM_ACTOR=$NUM_ACTOR" > /tmp/param
 sleep 3
 EOF
         ]
