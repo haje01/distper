@@ -9,8 +9,8 @@ import numpy as np
 from common import ReplayBuffer, PrioReplayBuffer, async_recv, ActorInfo,\
     BufferInfo, get_logger, PRIORITIZED
 
-BUFFER_SIZE = 500000  # 원래는 2,000,000
-START_SIZE = 10000    # 원래는 50,000
+BUFFER_SIZE = 1000000  # 원래는 2,000,000
+START_SIZE = 50000    # 원래는 50,000
 BATCH_SIZE = 256      # 원래는 512
 
 
