@@ -11,7 +11,7 @@ from torch import nn
 from torch.nn.init import xavier_uniform_
 
 GAMMA = 0.99
-ENV_NAME = "PongNoFrameskip-v4"
+ENV_NAME = "BreakoutNoFrameskip-v4"
 
 PRIORITIZED = True
 PRIO_ALPHA = 0.6

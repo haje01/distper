@@ -105,7 +105,8 @@ cd gym
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install -e .
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install gym[classic_control,atari]
 cd
-git clone https://github.com/haje01/distper.git
+# git clone https://github.com/haje01/distper.git
+git clone -b breakout https://github.com/haje01/distper.git  # FIXME
 screen -S learner -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python learner.py nowait; exec bash"
 screen -S buffer -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; python buffer.py; exec bash"
 screen -S board -dm bash -c "source anaconda3/bin/activate pytorch_p36; cd distper; tensorboard --logdir=runs; exec bash"
@@ -147,7 +148,8 @@ cd gym
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install -e .
 /home/ubuntu/anaconda3/envs/pytorch_p36/bin/pip install gym[classic_control,atari]
 cd
-git clone https://github.com/haje01/distper.git
+# git clone https://github.com/haje01/distper.git
+git clone -b breakout https://github.com/haje01/distper.git  # FIXME
 export MASTER_IP=${aws_instance.master.private_ip}
 export TNODE_ID=${count.index}
 export NUM_ACTOR=$((${var.num_task_node} * 4))
