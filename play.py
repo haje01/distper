@@ -49,7 +49,7 @@ if __name__ == "__main__":
         if dead:
             action = 1
             dead = False
-        print("action: {} q_vals: {}".format(action, q_vals))
+        # print("action: {} q_vals: {}".format(action, q_vals))
         c[action] += 1
         state, reward, done, info = env.step(action)
         total_reward += reward
